@@ -1,0 +1,319 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserRole {
+  client
+  worker
+}
+
+enum KycStatus {
+  pending
+  approved
+  rejected
+}
+
+enum WalletType {
+  custodial
+  external
+}
+
+enum TaskStatus {
+  draft
+  open
+  closed
+  expired
+}
+
+enum EscrowStatus {
+  pending
+  held
+  released
+  failed
+}
+
+enum AssignmentStatus {
+  in_progress
+  late
+  completed
+  expired
+}
+
+enum SubmissionStatus {
+  submitted
+  fix_requested
+  rejected
+  accepted
+}
+
+enum ReviewDecision {
+  approve
+  reject
+  fix
+}
+
+enum PayoutStatus {
+  queued
+  paid
+  failed
+}
+
+enum NotificationStatus {
+  pending
+  sent
+  read
+}
+
+// ============================================
+// MODELS
+// ============================================
+
+model User {
+  id        String    @id @default(uuid()) @db.Uuid
+  role      UserRole
+  email     String    @unique @db.VarChar(255)
+  walletId  String    @map("wallet_id") @db.Uuid
+  country   String?   @db.VarChar(100)
+  kycStatus KycStatus @default(pending) @map("kyc_status")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  wallet            Wallet          @relation(fields: [walletId], references: [id])
+  workerProfile     WorkerProfile?
+  kycAttempts       KycAttempt[]
+  auditLogs         AuditLog[]
+  tasksCreated      Task[]          @relation("TaskClient")
+  assignments       Assignment[]
+  payouts           Payout[]
+  ratingsGiven      Rating[]        @relation("RatingFrom")
+  ratingsReceived   Rating[]        @relation("RatingTo")
+  notifications     Notification[]
+  commsLogs         CommsLog[]
+  reviews           Review[]
+
+  @@map("users")
+}
+
+model Wallet {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  type        WalletType
+  walletAddr  String     @unique @map("wallet_addr") @db.VarChar(255)
+  providerRef String?    @map("provider_ref") @db.VarChar(255)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  users User[]
+
+  @@map("wallets")
+}
+
+model WorkerProfile {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @map("user_id") @db.Uuid
+  skills           Json?
+  languages        Json?
+  availability     Json?
+  reputation       Float    @default(0) @db.Real
+  completedTasks   Int      @default(0) @map("completed_tasks")
+  earlySubmissions Int      @default(0) @map("early_submissions")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("worker_profiles")
+}
+
+model KycAttempt {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  providerRef String?   @map("provider_ref") @db.VarChar(255)
+  status      KycStatus
+  requestedAt DateTime  @default(now()) @map("requested_at") @db.Timestamptz(6)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("kyc_attempts")
+}
+
+model AuditLog {
+  id      String   @id @default(uuid()) @db.Uuid
+  actorId String?  @map("actor_id") @db.Uuid
+  action  String   @db.VarChar(255)
+  details Json?
+  ts      DateTime @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model Task {
+  id          String      @id @default(uuid()) @db.Uuid
+  clientId    String      @map("client_id") @db.Uuid
+  title       String      @db.VarChar(255)
+  description String?     @db.Text
+  category    String?     @db.VarChar(100)
+  reward      Decimal     @db.Decimal(10, 2)
+  qty         Int         @default(1)
+  budget      Decimal?    @db.Decimal(12, 2)
+  deadline    DateTime?   @db.Timestamptz(6)
+  status      TaskStatus  @default(draft)
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  client      User         @relation("TaskClient", fields: [clientId], references: [id], onDelete: Cascade)
+  escrow      Escrow?
+  assignments Assignment[]
+  ratings     Rating[]
+
+  @@map("tasks")
+}
+
+model Escrow {
+  id         String       @id @default(uuid()) @db.Uuid
+  taskId     String       @unique @map("task_id") @db.Uuid
+  amount     Decimal      @db.Decimal(12, 2)
+  feeRate    Decimal      @map("fee_rate") @db.Decimal(5, 2)
+  status     EscrowStatus
+  txHashHold String?      @map("tx_hash_hold") @db.VarChar(255)
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("escrows")
+}
+
+model Assignment {
+  id        String           @id @default(uuid()) @db.Uuid
+  taskId    String           @map("task_id") @db.Uuid
+  workerId  String           @map("worker_id") @db.Uuid
+  status    AssignmentStatus @default(in_progress)
+  startedAt DateTime?        @map("started_at") @db.Timestamptz(6)
+  dueAt     DateTime?        @map("due_at") @db.Timestamptz(6)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  task       Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  worker     User        @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  submission Submission?
+
+  @@map("assignments")
+}
+
+model Submission {
+  id           String           @id @default(uuid()) @db.Uuid
+  assignmentId String           @unique @map("assignment_id") @db.Uuid
+  payloadUrl   String?          @map("payload_url") @db.VarChar(500)
+  payloadHash  String           @map("payload_hash") @db.VarChar(255)
+  qaFlags      Json?            @map("qa_flags")
+  status       SubmissionStatus @default(submitted)
+  submittedAt  DateTime         @default(now()) @map("submitted_at") @db.Timestamptz(6)
+
+  // Relations
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  reviews    Review[]
+  payouts    Payout[]
+
+  @@map("submissions")
+}
+
+model Review {
+  id           String         @id @default(uuid()) @db.Uuid
+  submissionId String         @map("submission_id") @db.Uuid
+  reviewerId   String         @map("reviewer_id") @db.Uuid
+  decision     ReviewDecision
+  feedback     String?        @db.Text
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  reviewer   User       @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@map("reviews")
+}
+
+model Payout {
+  id            String       @id @default(uuid()) @db.Uuid
+  submissionId  String       @map("submission_id") @db.Uuid
+  workerId      String       @map("worker_id") @db.Uuid
+  amountNet     Decimal      @map("amount_net") @db.Decimal(10, 2)
+  status        PayoutStatus @default(queued)
+  txHashRelease String?      @map("tx_hash_release") @db.VarChar(255)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  worker     User       @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@map("payouts")
+}
+
+model Rating {
+  id         String   @id @default(uuid()) @db.Uuid
+  fromUserId String   @map("from_user_id") @db.Uuid
+  toUserId   String   @map("to_user_id") @db.Uuid
+  taskId     String   @map("task_id") @db.Uuid
+  score      Int
+  comment    String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  fromUser User @relation("RatingFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("RatingTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  task     Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("ratings")
+}
+
+model Notification {
+  id        String             @id @default(uuid()) @db.Uuid
+  toUserId  String             @map("to_user_id") @db.Uuid
+  type      String             @db.VarChar(100)
+  content   String?            @db.Text
+  status    NotificationStatus @default(pending)
+  meta      Json?
+  createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  toUser User @relation(fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model CommsLog {
+  id      String   @id @default(uuid()) @db.Uuid
+  whoId   String   @map("who_id") @db.Uuid
+  channel String?  @db.VarChar(100)
+  what    String?  @db.Text
+  when    DateTime @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  who User @relation(fields: [whoId], references: [id], onDelete: Cascade)
+
+  @@map("comms_logs")
+}
+
+model SystemPolicy {
+  key       String   @id @db.VarChar(100)
+  value     Json
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("system_policies")
+}

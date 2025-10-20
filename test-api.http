@@ -1,0 +1,140 @@
+### PayTask Worker API Test File
+### Use with REST Client extension in VS Code or similar tools
+
+@baseUrl = http://localhost:3000
+
+### Health Check
+GET {{baseUrl}}/health
+
+### Root Endpoint
+GET {{baseUrl}}/
+
+### Task Discovery - Get All Tasks
+GET {{baseUrl}}/api/tasks/discover
+
+### Task Discovery - Filter by Category
+GET {{baseUrl}}/api/tasks/discover?category=transcription
+
+### Task Discovery - Filter by Reward Range
+GET {{baseUrl}}/api/tasks/discover?minReward=20&maxReward=50
+
+### Task Discovery - Sort by Reward (Descending)
+GET {{baseUrl}}/api/tasks/discover?sortBy=reward&order=desc
+
+### Task Discovery - Sort by Deadline (Ascending)
+GET {{baseUrl}}/api/tasks/discover?sortBy=deadline&order=asc
+
+### Task Discovery - With Pagination
+GET {{baseUrl}}/api/tasks/discover?page=1&limit=5
+
+### Task Discovery - Combined Filters
+GET {{baseUrl}}/api/tasks/discover?category=transcription&minReward=10&sortBy=reward&order=desc&page=1&limit=20
+
+### Task Discovery - Category: Data Entry
+GET {{baseUrl}}/api/tasks/discover?category=data-entry
+
+### Task Discovery - Category: Translation
+GET {{baseUrl}}/api/tasks/discover?category=translation
+
+### Task Discovery - High Rewards Only
+GET {{baseUrl}}/api/tasks/discover?minReward=40&sortBy=reward&order=desc
+
+### Task Discovery - Sort by Created Date
+GET {{baseUrl}}/api/tasks/discover?sortBy=createdAt&order=desc
+
+### Get Task by ID (Replace with actual task ID from discovery)
+GET {{baseUrl}}/api/tasks/550e8400-e29b-41d4-a716-446655440010
+
+### Test Not Found
+GET {{baseUrl}}/api/tasks/00000000-0000-0000-0000-000000000000
+
+### Test Invalid Route
+GET {{baseUrl}}/api/invalid-route
+
+### Get All Tasks (No Filters)
+GET {{baseUrl}}/api/tasks/all
+
+###############################################
+# Statistics Endpoints
+###############################################
+
+### Get Task Statistics
+GET {{baseUrl}}/api/stats/tasks
+
+### Get All Categories
+GET {{baseUrl}}/api/stats/categories
+
+### Clear Statistics Cache
+POST {{baseUrl}}/api/stats/cache/clear
+
+###############################################
+# Assignment Endpoints
+###############################################
+
+### Accept Task
+POST {{baseUrl}}/api/tasks/assignments/accept
+Content-Type: application/json
+
+{
+  "taskId": "550e8400-e29b-41d4-a716-446655440010",
+  "workerId": "550e8400-e29b-41d4-a716-446655440004"
+}
+
+### Get My Assignments (Simple) - Worker 1
+# Worker 1 ID: 550e8400-e29b-41d4-a716-446655440004
+# This worker HAS 1 pre-assigned task in seed data
+# Expected: Should return Assignment ID 550e8400-e29b-41d4-a716-446655440020
+GET {{baseUrl}}/api/tasks/assignments/my-assignments?workerId=550e8400-e29b-41d4-a716-446655440004
+
+### Get My Assignments (Simple) - Worker 2
+# Worker 2 ID: 550e8400-e29b-41d4-a716-446655440006
+# This worker HAS 1 pre-assigned task in seed data
+# Expected: Should return Assignment ID 550e8400-e29b-41d4-a716-446655440021
+GET {{baseUrl}}/api/tasks/assignments/my-assignments?workerId=550e8400-e29b-41d4-a716-446655440006
+
+### List Assignments (with pagination) - Worker 1
+GET {{baseUrl}}/api/tasks/assignments/list?workerId=550e8400-e29b-41d4-a716-446655440004&page=1&limit=10
+
+### List Assignments (filter by status) - Worker 1
+GET {{baseUrl}}/api/tasks/assignments/list?workerId=550e8400-e29b-41d4-a716-446655440004&status=in_progress
+
+### List Assignments - Worker 2
+GET {{baseUrl}}/api/tasks/assignments/list?workerId=550e8400-e29b-41d4-a716-446655440006&page=1&limit=10
+
+###############################################
+# Submission Endpoints
+###############################################
+
+### Create Submission (Assignment 1)
+POST {{baseUrl}}/api/submissions/create
+Content-Type: application/json
+
+{
+  "assignmentId": "550e8400-e29b-41d4-a716-446655440020",
+  "payloadUrl": "https://storage.paytask.com/submissions/test-file-001.txt",
+  "payloadHash": "sha256:abc123def456ghi789jkl012mno345pqr",
+  "metadata": {
+    "fileSize": 2048,
+    "fileName": "transcription.txt",
+    "mimeType": "text/plain"
+  }
+}
+
+### Create Submission (Assignment 2)
+POST {{baseUrl}}/api/submissions/create
+Content-Type: application/json
+
+{
+  "assignmentId": "550e8400-e29b-41d4-a716-446655440021",
+  "payloadUrl": "https://storage.paytask.com/submissions/test-file-002.txt",
+  "payloadHash": "sha256:xyz789uvw456rst123abc890def567ghi",
+  "metadata": {
+    "fileSize": 3072,
+    "fileName": "categorization.txt",
+    "mimeType": "text/plain"
+  }
+}
+
+### Get Submission by ID
+GET {{baseUrl}}/api/submissions/PUT_SUBMISSION_ID_HERE
+

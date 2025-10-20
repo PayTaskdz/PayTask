@@ -1,0 +1,11 @@
+{
+  "assignmentId": "550e8400-e29b-41d4-a716-446655440020",
+  "payloadUrl": "https://storage.paytask.com/submissions/test-file-001.txt",
+  "payloadHash": "sha256:abc123def456ghi789jkl012mno345pqr",
+  "metadata": {
+    "fileSize": 2048,
+    "fileName": "transcription.txt",
+    "mimeType": "text/plain"
+  }
+}
+

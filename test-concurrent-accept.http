@@ -1,0 +1,172 @@
+### TEST OPTIMISTIC LOCK - First Wins
+
+# This file demonstrates optimistic locking behavior
+# Run these requests SIMULTANEOUSLY to test race conditions
+
+@baseUrl = http://localhost:3000
+
+###############################################
+# Setup: Get a task with qty=1
+###############################################
+
+### Get available tasks
+GET {{baseUrl}}/api/tasks/all
+
+# Copy a task ID from response (look for qty: 1)
+# Example: 550e8400-e29b-41d4-a716-446655440010
+
+###############################################
+# TEST 1: Two workers accept same task
+# Execute BOTH requests at the SAME TIME
+# Expected: One succeeds (201), one fails (409)
+###############################################
+
+### Worker A accepts task
+POST {{baseUrl}}/api/tasks/assignments/accept
+Content-Type: application/json
+
+{
+  "taskId": "550e8400-e29b-41d4-a716-446655440010",
+  "workerId": "550e8400-e29b-41d4-a716-446655440004"
+}
+
+### Worker B accepts SAME task (run simultaneously!)
+POST {{baseUrl}}/api/tasks/assignments/accept
+Content-Type: application/json
+
+{
+  "taskId": "550e8400-e29b-41d4-a716-446655440010",
+  "workerId": "550e8400-e29b-41d4-a716-446655440006"
+}
+
+###############################################
+# Expected Results:
+###############################################
+
+# Worker A (or B - whoever is first):
+# HTTP 201 Created
+# {
+#   "success": true,
+#   "message": "Task accepted successfully",
+#   "data": {
+#     "id": "assignment-uuid",
+#     "taskId": "550e8400-e29b-41d4-a716-446655440010",
+#     ...
+#   }
+# }
+
+# Worker B (or A - whoever is second):
+# HTTP 409 Conflict
+# {
+#   "success": false,
+#   "error": {
+#     "message": "Task already assigned to another worker (race condition detected)",
+#     "code": "DOUBLE_ACCEPTANCE",
+#     "details": {
+#       "hint": "Another worker accepted this task at the same time. Please try another task.",
+#       "timestamp": "2025-10-20T..."
+#     }
+#   }
+# }
+
+###############################################
+# TEST 2: Three workers accept same task
+# Execute ALL THREE at the SAME TIME
+# Expected: One succeeds, two fail with 409
+###############################################
+
+### Worker A
+POST {{baseUrl}}/api/tasks/assignments/accept
+Content-Type: application/json
+
+{
+  "taskId": "550e8400-e29b-41d4-a716-446655440011",
+  "workerId": "550e8400-e29b-41d4-a716-446655440004"
+}
+
+### Worker B (same time!)
+POST {{baseUrl}}/api/tasks/assignments/accept
+Content-Type: application/json
+
+{
+  "taskId": "550e8400-e29b-41d4-a716-446655440011",
+  "workerId": "550e8400-e29b-41d4-a716-446655440006"
+}
+
+### Worker C (same time!)
+POST {{baseUrl}}/api/tasks/assignments/accept
+Content-Type: application/json
+
+{
+  "taskId": "550e8400-e29b-41d4-a716-446655440011",
+  "workerId": "550e8400-e29b-41d4-a716-446655440008"
+}
+
+###############################################
+# TEST 3: Verify only 1 assignment created
+###############################################
+
+### Check task details
+GET {{baseUrl}}/api/tasks/550e8400-e29b-41d4-a716-446655440010
+
+# Should show:
+# "_count": {
+#   "assignments": 1  ← Only 1!
+# }
+
+###############################################
+# TEST 4: Load test with script
+###############################################
+
+# Use this JavaScript to test properly:
+
+/*
+const taskId = '550e8400-e29b-41d4-a716-446655440010';
+const workers = [
+  '550e8400-e29b-41d4-a716-446655440004',
+  '550e8400-e29b-41d4-a716-446655440006',
+  '550e8400-e29b-41d4-a716-446655440008',
+];
+
+const results = await Promise.all(
+  workers.map(workerId =>
+    fetch('http://localhost:3000/api/tasks/assignments/accept', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, workerId })
+    })
+  )
+);
+
+const successes = results.filter(r => r.status === 201);
+const conflicts = results.filter(r => r.status === 409);
+
+console.log(`✅ Successes: ${successes.length}`); // Should be 1
+console.log(`❌ Conflicts: ${conflicts.length}`);  // Should be 2
+console.log(`Optimistic lock working: ${successes.length === 1 && conflicts.length === 2}`);
+*/
+
+###############################################
+# How It Works:
+###############################################
+
+# 1. Both workers start transactions at ~same time
+# 2. Both check: task has 0 assignments ✓
+# 3. First worker creates assignment → commits ✓
+# 4. Second worker re-checks (OPTIMISTIC LOCK)
+#    → Now sees 1 assignment
+#    → Throws DOUBLE_ACCEPTANCE error
+#    → Rollback transaction
+# 5. Result: Only 1 assignment created!
+
+###############################################
+# Key Points:
+###############################################
+
+# ✅ Atomicity: Transaction ensures all-or-nothing
+# ✅ Isolation: Serializable transactions prevent races
+# ✅ Consistency: Always correct assignment count
+# ✅ Durability: Committed data is permanent
+
+# 🔒 Optimistic Lock = First Wins!
+
