@@ -19,9 +19,7 @@ npm install
 cp .env.example .env
 
 # Setup database
-npm run prisma:generate
-npm run prisma:migrate
-npm run prisma:seed
+npm run db:seed
 
 # Start server
 npm run dev
@@ -98,8 +96,7 @@ The complete guide includes:
 
 - **Framework:** Fastify 4.x
 - **Language:** TypeScript 5.x
-- **Database:** PostgreSQL 14+
-- **ORM:** Prisma 5.x
+- **Database:** PostgreSQL 14+ (raw SQL with pg)
 - **Cache:** Redis 7.x
 - **File Upload:** @fastify/multipart
 - **Image Processing:** Sharp
@@ -109,9 +106,32 @@ The complete guide includes:
 
 ---
 
+## 🏗️ Architecture
+
+This project follows the **MVC (Model-View-Controller)** pattern with a clean separation of concerns:
+
+```
+Routes (HTTP) → Services (Business Logic) → Models (Data Access) → Database
+```
+
+**📚 [Models Layer Guide](./MODELS_LAYER_GUIDE.md)** - Complete documentation about the Models layer
+
+### Layer Responsibilities:
+
+| Layer | Responsibility | Files |
+|-------|---------------|-------|
+| **Routes** | HTTP handling, request/response | `src/routes/*.routes.ts` |
+| **Services** | Business logic, caching, orchestration | `src/services/*.service.ts` |
+| **Models** | Data access, SQL queries | `src/models/*.model.ts` |
+| **Database** | Data storage | PostgreSQL |
+
+---
+
 ## 📖 Documentation Files
 
 - **[COMPLETE_GUIDE.md](./COMPLETE_GUIDE.md)** - Comprehensive documentation
+- **[MODELS_LAYER_GUIDE.md](./MODELS_LAYER_GUIDE.md)** - Models layer architecture & best practices
+- **[MIGRATION_TO_RAW_SQL.md](./MIGRATION_TO_RAW_SQL.md)** - Migration from Prisma to Raw SQL
 - **[test-api.http](./test-api.http)** - REST client test cases
 - **[test-concurrent-accept.http](./test-concurrent-accept.http)** - Race condition tests
 
@@ -120,7 +140,7 @@ The complete guide includes:
 ## 🐛 Troubleshooting
 
 ### Empty Response?
-- Check if database is seeded: `npm run prisma:seed`
+- Check if database is seeded: `npm run db:seed`
 - Use correct worker IDs (see Test IDs above)
 - Clear cache: `POST /api/stats/cache/clear`
 
