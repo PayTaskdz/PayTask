@@ -1,20 +1,25 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../config/prisma';
 import redis from '../config/redis';
+import { UserRoleValidator } from './user-role.validator';
 
 export class AssignmentService {
   /**
    * Accept a task (create assignment)
    * Uses optimistic locking - first transaction wins, others get conflict error
    */
-  async acceptTask(taskId: string, workerId: string) {
+  async acceptTask(taskId: string, userId: string) {
     // Use transaction with serializable isolation for optimistic locking
     // This ensures "first wins" - simultaneous requests will be serialized
     return await prisma.$transaction(
-      async (tx) => {
+      async (tx: Prisma.TransactionClient) => {
+        // Validate user is a worker
+        await UserRoleValidator.validateWorkerRole(userId, tx);
+
         // 1. Check worker's active assignments (< 3)
         const activeAssignments = await tx.assignment.count({
           where: {
-            workerId: workerId,
+            workerId: userId,
             status: {
               in: ['in_progress', 'late'],
             },
@@ -25,11 +30,10 @@ export class AssignmentService {
           throw new Error('CONCURRENCY_CAP');
         }
 
-        // 2. Get task with escrow (lock for update to prevent race conditions)
+        // 2. Get task (lock for update to prevent race conditions)
         const task = await tx.task.findUnique({
           where: { id: taskId },
           include: {
-            escrow: true,
             _count: {
               select: {
                 assignments: true,
@@ -47,12 +51,7 @@ export class AssignmentService {
           throw new Error('TASK_NOT_OPEN');
         }
 
-        // 4. Check escrow status = 'held'
-        if (!task.escrow || task.escrow.status !== 'held') {
-          throw new Error('ESCROW_NOT_HELD');
-        }
-
-        // 5. OPTIMISTIC LOCK: Re-check assignment count just before creation
+        // 4. OPTIMISTIC LOCK: Re-check assignment count just before creation
         // This is the critical section - prevents race conditions
         const currentAssignmentCount = await tx.assignment.count({
           where: { taskId: taskId },
@@ -62,11 +61,11 @@ export class AssignmentService {
           throw new Error('DOUBLE_ACCEPTANCE'); // Race condition detected!
         }
 
-        // 6. Check if worker already accepted this task
+        // 5. Check if worker already accepted this task
         const existingAssignment = await tx.assignment.findFirst({
           where: {
             taskId: taskId,
-            workerId: workerId,
+            workerId: userId,
           },
         });
 
@@ -74,13 +73,13 @@ export class AssignmentService {
           throw new Error('ALREADY_ACCEPTED');
         }
 
-        // 7. Create assignment (atomic operation)
+        // 6. Create assignment (atomic operation)
         const dueAt = task.deadline || new Date(Date.now() + 48 * 60 * 60 * 1000); // deadline or +48h
 
         const assignment = await tx.assignment.create({
           data: {
             taskId: taskId,
-            workerId: workerId,
+            workerId: userId,
             status: 'in_progress',
             startedAt: new Date(),
             dueAt: dueAt,
@@ -97,7 +96,7 @@ export class AssignmentService {
         });
 
         // 8. Clear cache
-        await this.clearAssignmentCache(workerId);
+        await this.clearAssignmentCache(userId);
 
       return {
         id: assignment.id,
@@ -120,15 +119,18 @@ export class AssignmentService {
    * List worker's assignments with pagination and filter
    */
   async listWorkerAssignments(
-    workerId: string,
+    userId: string,
     status?: string,
     page: number = 1,
     limit: number = 10
   ) {
+    // Validate user is a worker
+    await UserRoleValidator.validateWorkerRole(userId);
+
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: any = { workerId };
+    const where: any = { workerId: userId };
     if (status) {
       where.status = status;
     }
@@ -202,8 +204,11 @@ export class AssignmentService {
   /**
    * Get worker's assignments (simple version, no pagination)
    */
-  async getWorkerAssignments(workerId: string) {
-    const cacheKey = `assignments:worker:${workerId}`;
+  async getWorkerAssignments(userId: string) {
+    // Validate user is a worker
+    await UserRoleValidator.validateWorkerRole(userId);
+
+    const cacheKey = `assignments:worker:${userId}`;
 
     // Try cache
     const cached = await redis.get(cacheKey);
@@ -212,7 +217,7 @@ export class AssignmentService {
     }
 
     const assignments = await prisma.assignment.findMany({
-      where: { workerId },
+      where: { workerId: userId },
       orderBy: { createdAt: 'desc' },
       include: {
         task: {
@@ -256,9 +261,9 @@ export class AssignmentService {
   /**
    * Clear assignment cache
    */
-  async clearAssignmentCache(workerId?: string) {
-    if (workerId) {
-      await redis.del(`assignments:worker:${workerId}`);
+  async clearAssignmentCache(userId?: string) {
+    if (userId) {
+      await redis.del(`assignments:worker:${userId}`);
     }
     // Also clear task cache as assignment count changed
     const keys = await redis.keys('tasks:*');

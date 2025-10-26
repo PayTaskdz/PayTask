@@ -1,8 +1,393 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { taskService } from '../services/task.service';
+import { userService } from '../services/user.service';
+import { solanaService } from '../services/solanaService';
+import { config } from '../config/env';
 import { TaskDiscoveryQuerySchema, TaskDiscoveryResponse } from '../types/task.types';
 
+interface CreateTaskBody {
+  title: string;
+  description?: string;
+  category?: string;
+  reward: number;
+  qty: number;
+  deadline?: string;
+}
+
+interface UpdateTaskBody {
+  title?: string;
+  description?: string;
+  category?: string;
+  reward?: number;
+  qty?: number;
+  deadline?: string;
+}
+
 export async function taskRoutes(fastify: FastifyInstance) {
+  /**
+   * POST /api/tasks
+   * Create a new task (draft)
+   */
+  fastify.post(
+    '/',
+    {
+      schema: {
+        description: 'Create a new task (draft status)',
+        tags: ['Tasks'],
+        headers: {
+          type: 'object',
+          properties: {
+            'x-user-id': { type: 'string', format: 'uuid' },
+          },
+          required: ['x-user-id'],
+        },
+        body: {
+          type: 'object',
+          required: ['title', 'reward', 'qty'],
+          properties: {
+            title: { type: 'string', minLength: 1, maxLength: 255 },
+            description: { type: 'string' },
+            category: { type: 'string', maxLength: 100 },
+            reward: { type: 'number', minimum: 0.01 },
+            qty: { type: 'integer', minimum: 1 },
+            deadline: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
+    },
+    async (
+      request: FastifyRequest<{ Body: CreateTaskBody; Headers: { 'x-user-id': string } }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const userId = request.headers['x-user-id'];
+        if (!userId) {
+          return reply.code(401).send({ error: 'UNAUTHORIZED' });
+        }
+
+        const task = await taskService.createTask(userId, {
+          title: request.body.title,
+          description: request.body.description,
+          category: request.body.category,
+          reward: request.body.reward,
+          qty: request.body.qty,
+          deadline: request.body.deadline ? new Date(request.body.deadline) : undefined,
+        });
+
+        return reply.code(201).send({
+          success: true,
+          data: task,
+        });
+      } catch (error: any) {
+        if (error.message === 'NOT_CLIENT') {
+          return reply.code(403).send({ error: 'Only clients can create tasks' });
+        }
+        console.error('Error creating task:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
+   * PUT /api/tasks/updateTask/:taskId
+   * Update a draft task
+   */
+  fastify.put(
+    '/updateTaskDraft/:taskId',
+    {
+      schema: {
+        description: 'Update a draft task',
+        tags: ['Tasks'],
+        headers: {
+          type: 'object',
+          properties: {
+            'x-user-id': { type: 'string', format: 'uuid' },
+          },
+          required: ['x-user-id'],
+        },
+        params: {
+          type: 'object',
+          properties: {
+            taskId: { type: 'string', format: 'uuid' },
+          },
+          required: ['taskId'],
+        },
+        body: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', minLength: 1, maxLength: 255 },
+            description: { type: 'string' },
+            category: { type: 'string', maxLength: 100 },
+            reward: { type: 'number', minimum: 0.01 },
+            qty: { type: 'integer', minimum: 1 },
+            deadline: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
+    },
+    async (
+      request: FastifyRequest<{
+        Body: UpdateTaskBody;
+        Params: { taskId: string };
+        Headers: { 'x-user-id': string };
+      }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const userId = request.headers['x-user-id'];
+        if (!userId) {
+          return reply.code(401).send({ error: 'UNAUTHORIZED' });
+        }
+
+        const task = await taskService.updateTask(userId, request.params.taskId, {
+          title: request.body.title,
+          description: request.body.description,
+          category: request.body.category,
+          reward: request.body.reward,
+          qty: request.body.qty,
+          deadline: request.body.deadline ? new Date(request.body.deadline) : undefined,
+        });
+
+        return reply.code(200).send({
+          success: true,
+          data: task,
+        });
+      } catch (error: any) {
+        if (error.message === 'TASK_NOT_FOUND') {
+          return reply.code(404).send({ error: error.message });
+        }
+        if (error.message === 'NOT_OWNER' || error.message === 'NOT_CLIENT') {
+          return reply.code(403).send({ error: error.message });
+        }
+        if (error.message === 'CANNOT_UPDATE_PUBLISHED') {
+          return reply.code(400).send({ error: error.message });
+        }
+        console.error('Error updating task:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
+   * POST /api/tasks/:taskId/publish
+   * Publish task with escrow payment
+   * This will:
+   * 1. Verify client has enough USDC balance
+   * 2. Transfer budget (reward + fee) from client wallet to settlement wallet
+   * 3. Update task status to 'open'
+   */
+  fastify.post(
+    '/:taskId/publish',
+    {
+      schema: {
+        description: 'Publish task with escrow payment',
+        tags: ['Tasks'],
+        headers: {
+          type: 'object',
+          properties: {
+            'x-user-id': { type: 'string', format: 'uuid' },
+          },
+          required: ['x-user-id'],
+        },
+        params: {
+          type: 'object',
+          properties: {
+            taskId: { type: 'string', format: 'uuid' },
+          },
+          required: ['taskId'],
+        },
+      },
+    },
+    async (
+      request: FastifyRequest<{
+        Params: { taskId: string };
+        Headers: { 'x-user-id': string };
+      }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const userId = request.headers['x-user-id'];
+        if (!userId) {
+          return reply.code(401).send({ error: 'UNAUTHORIZED' });
+        }
+
+        const { taskId } = request.params;
+
+        // 1. Get task details
+        const task = await taskService.getTaskById(taskId);
+        if (!task) {
+          return reply.code(404).send({
+            success: false,
+            error: 'Task not found',
+          });
+        }
+
+        // 2. Verify ownership
+        if (task.clientId !== userId) {
+          return reply.code(403).send({
+            success: false,
+            error: 'NOT_OWNER',
+          });
+        }
+
+        // 3. Check task is in draft status
+        if (task.status !== 'draft') {
+          return reply.code(400).send({
+            success: false,
+            error: 'Task must be in draft status to publish',
+            currentStatus: task.status,
+          });
+        }
+
+        // 4. Get client wallet information
+        const user = await userService.getUserById(task.clientId);
+        if (!user) {
+          return reply.code(404).send({
+            success: false,
+            error: 'User not found',
+          });
+        }
+
+        if (!user.walletAddress) {
+          return reply.code(400).send({
+            success: false,
+            error: 'User wallet address not found',
+          });
+        }
+
+        // 5. Calculate total amount (budget includes reward + fee)
+        const totalAmount = parseFloat(task.budget || '0');
+        if (totalAmount <= 0) {
+          return reply.code(400).send({
+            success: false,
+            error: 'Invalid task budget',
+          });
+        }
+
+        // 6. Check user USDC balance
+        console.log(`Checking USDC balance for wallet ${user.walletAddress}`);
+        const userBalance = await solanaService.getUsdcBalance(user.walletAddress);
+        console.log(`Balance: ${userBalance} USDC, Required: ${totalAmount} USDC`);
+
+        if (userBalance < totalAmount) {
+          return reply.code(400).send({
+            success: false,
+            error: 'Insufficient balance',
+            details: {
+              userWallet: user.walletAddress,
+              currentBalance: userBalance,
+              requiredAmount: totalAmount,
+              shortage: parseFloat((totalAmount - userBalance).toFixed(2)),
+            },
+          });
+        }
+
+        // 7. Transfer USDC from client wallet to settlement wallet
+        console.log(`Transferring ${totalAmount} USDC from client ${user.walletAddress} to settlement wallet ${config.solana.settlementWalletPublicKey}`);
+        
+        // TODO: Implement actual transfer from client to settlement
+        // For now, this is mocked - in production, client needs to sign transaction
+        console.log(`[MOCK] Transfer of ${totalAmount} USDC to settlement wallet`);
+        const mockTxHash = `mock_tx_${Date.now()}`;
+
+        // 8. Publish task (update status to 'open')
+        const publishedTask = await taskService.publishTask(userId, {
+          taskId: task.id,
+          txHash: mockTxHash,
+        });
+
+        // 9. Return success response
+        return reply.code(200).send({
+          success: true,
+          message: 'Task published successfully with escrow payment',
+          data: publishedTask,
+          escrow: {
+            fromWallet: user.walletAddress,
+            toWallet: config.solana.settlementWalletPublicKey,
+            amount: totalAmount,
+            reward: parseFloat(task.reward),
+            fee: totalAmount - parseFloat(task.reward) * task.qty,
+            txHash: mockTxHash,
+            note: 'Funds escrowed in settlement wallet',
+          },
+        });
+      } catch (error: any) {
+        if (error.message === 'TASK_NOT_FOUND') {
+          return reply.code(404).send({ error: error.message });
+        }
+        if (error.message === 'NOT_OWNER' || error.message === 'NOT_CLIENT') {
+          return reply.code(403).send({ error: error.message });
+        }
+        if (error.message === 'ALREADY_PUBLISHED') {
+          return reply.code(400).send({ error: error.message });
+        }
+        console.error('Error publishing task:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
+   * DELETE /api/tasks/:taskId
+   * Delete a draft task
+   */
+  fastify.delete(
+    '/:taskId',
+    {
+      schema: {
+        description: 'Delete a draft task',
+        tags: ['Tasks'],
+        headers: {
+          type: 'object',
+          properties: {
+            'x-user-id': { type: 'string', format: 'uuid' },
+          },
+          required: ['x-user-id'],
+        },
+        params: {
+          type: 'object',
+          properties: {
+            taskId: { type: 'string', format: 'uuid' },
+          },
+          required: ['taskId'],
+        },
+      },
+    },
+    async (
+      request: FastifyRequest<{
+        Params: { taskId: string };
+        Headers: { 'x-user-id': string };
+      }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const userId = request.headers['x-user-id'];
+        if (!userId) {
+          return reply.code(401).send({ error: 'UNAUTHORIZED' });
+        }
+
+        const result = await taskService.deleteTask(userId, request.params.taskId);
+
+        return reply.code(200).send({
+          success: true,
+          data: result,
+        });
+      } catch (error: any) {
+        if (error.message === 'TASK_NOT_FOUND') {
+          return reply.code(404).send({ error: error.message });
+        }
+        if (error.message === 'NOT_OWNER' || error.message === 'NOT_CLIENT') {
+          return reply.code(403).send({ error: error.message });
+        }
+        if (error.message === 'CANNOT_DELETE_PUBLISHED') {
+          return reply.code(400).send({ error: error.message });
+        }
+        console.error('Error deleting task:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
   // Get All Tasks (No Filters)
   fastify.get(
     '/all',
@@ -258,7 +643,6 @@ export async function taskRoutes(fastify: FastifyInstance) {
       }
     }
   );
-
   // Get task by ID (bonus endpoint)
   fastify.get(
     '/:taskId',

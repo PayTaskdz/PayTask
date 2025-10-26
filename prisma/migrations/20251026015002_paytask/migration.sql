@@ -2,18 +2,6 @@
 CREATE TYPE "UserRole" AS ENUM ('client', 'worker');
 
 -- CreateEnum
-CREATE TYPE "KycStatus" AS ENUM ('pending', 'approved', 'rejected');
-
--- CreateEnum
-CREATE TYPE "WalletType" AS ENUM ('custodial', 'external');
-
--- CreateEnum
-CREATE TYPE "TaskStatus" AS ENUM ('draft', 'open', 'closed', 'expired');
-
--- CreateEnum
-CREATE TYPE "EscrowStatus" AS ENUM ('pending', 'held', 'released', 'failed');
-
--- CreateEnum
 CREATE TYPE "AssignmentStatus" AS ENUM ('in_progress', 'late', 'completed', 'expired');
 
 -- CreateEnum
@@ -28,29 +16,45 @@ CREATE TYPE "PayoutStatus" AS ENUM ('queued', 'paid', 'failed');
 -- CreateEnum
 CREATE TYPE "NotificationStatus" AS ENUM ('pending', 'sent', 'read');
 
+-- CreateEnum
+CREATE TYPE "ErrorSeverity" AS ENUM ('info', 'warning', 'error', 'critical');
+
+-- CreateEnum
+CREATE TYPE "TransactionDirection" AS ENUM ('in', 'out');
+
+-- CreateEnum
+CREATE TYPE "TransactionStatus" AS ENUM ('pending', 'confirmed', 'failed', 'pending_approval');
+
+-- CreateEnum
+CREATE TYPE "TaskStatus" AS ENUM ('draft', 'open', 'active', 'completed', 'refund', 'cancelled');
+
 -- CreateTable
 CREATE TABLE "users" (
     "id" UUID NOT NULL,
-    "role" "UserRole" NOT NULL,
     "email" VARCHAR(255) NOT NULL,
-    "wallet_id" UUID NOT NULL,
-    "country" VARCHAR(100),
-    "kyc_status" "KycStatus" NOT NULL DEFAULT 'pending',
+    "username" VARCHAR(255) NOT NULL,
+    "password_hash" VARCHAR(255) NOT NULL,
+    "role" "UserRole" NOT NULL DEFAULT 'client',
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "fystack_session_cookie" VARCHAR(255),
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL,
 
     CONSTRAINT "users_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
-CREATE TABLE "wallets" (
+CREATE TABLE "sessions" (
     "id" UUID NOT NULL,
     "user_id" UUID NOT NULL,
-    "type" "WalletType" NOT NULL,
-    "wallet_addr" VARCHAR(255) NOT NULL,
-    "provider_ref" VARCHAR(255),
+    "token" TEXT NOT NULL,
+    "expires_at" TIMESTAMPTZ(6) NOT NULL,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "user_agent" TEXT,
+    "ip_address" TEXT,
 
-    CONSTRAINT "wallets_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "sessions_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -69,14 +73,40 @@ CREATE TABLE "worker_profiles" (
 );
 
 -- CreateTable
-CREATE TABLE "kyc_attempts" (
+CREATE TABLE "wallets" (
     "id" UUID NOT NULL,
     "user_id" UUID NOT NULL,
-    "provider_ref" VARCHAR(255),
-    "status" "KycStatus" NOT NULL,
-    "requested_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "fystack_wallet_id" VARCHAR(255) NOT NULL,
+    "fystack_workspace_id" VARCHAR(255) NOT NULL,
+    "addresses" JSONB NOT NULL,
+    "wallet_name" VARCHAR(255) NOT NULL,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL,
 
-    CONSTRAINT "kyc_attempts_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "wallets_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "transactions" (
+    "id" UUID NOT NULL,
+    "hash" VARCHAR(255),
+    "fromAddress" VARCHAR(255) NOT NULL,
+    "toAddress" VARCHAR(255) NOT NULL,
+    "amount" TEXT NOT NULL,
+    "network" TEXT NOT NULL,
+    "assetSymbol" TEXT NOT NULL,
+    "assetName" TEXT NOT NULL,
+    "fee" DECIMAL(20,10),
+    "direction" "TransactionDirection",
+    "type" TEXT NOT NULL,
+    "status" "TransactionStatus" NOT NULL DEFAULT 'pending',
+    "blockTime" TIMESTAMP(3) NOT NULL,
+    "walletId" UUID NOT NULL,
+    "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ(6) NOT NULL,
+
+    CONSTRAINT "transactions_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -100,24 +130,14 @@ CREATE TABLE "tasks" (
     "reward" DECIMAL(10,2) NOT NULL,
     "qty" INTEGER NOT NULL DEFAULT 1,
     "budget" DECIMAL(12,2),
+    "fee_percent" DECIMAL(5,2) NOT NULL DEFAULT 5.00,
     "deadline" TIMESTAMPTZ(6),
     "status" "TaskStatus" NOT NULL DEFAULT 'draft',
+    "tx_hash" VARCHAR(255),
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL,
 
     CONSTRAINT "tasks_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "escrows" (
-    "id" UUID NOT NULL,
-    "task_id" UUID NOT NULL,
-    "amount" DECIMAL(12,2) NOT NULL,
-    "fee_rate" DECIMAL(5,2) NOT NULL,
-    "status" "EscrowStatus" NOT NULL,
-    "tx_hash_hold" VARCHAR(255),
-    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "escrows_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -217,38 +237,104 @@ CREATE TABLE "system_policies" (
     CONSTRAINT "system_policies_pkey" PRIMARY KEY ("key")
 );
 
+-- CreateTable
+CREATE TABLE "error_logs" (
+    "id" UUID NOT NULL,
+    "error_code" VARCHAR(255) NOT NULL,
+    "error_message" TEXT NOT NULL,
+    "error_stack" TEXT,
+    "endpoint" VARCHAR(255),
+    "method" VARCHAR(10),
+    "user_id" UUID,
+    "request_body" JSONB,
+    "request_params" JSONB,
+    "request_query" JSONB,
+    "user_agent" TEXT,
+    "ip_address" VARCHAR(45),
+    "severity" "ErrorSeverity" NOT NULL DEFAULT 'error',
+    "resolved" BOOLEAN NOT NULL DEFAULT false,
+    "resolved_at" TIMESTAMPTZ(6),
+    "resolved_by" UUID,
+    "notes" TEXT,
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "error_logs_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "wallets_wallet_addr_key" ON "wallets"("wallet_addr");
+CREATE UNIQUE INDEX "users_username_key" ON "users"("username");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "sessions_token_key" ON "sessions"("token");
+
+-- CreateIndex
+CREATE INDEX "sessions_token_idx" ON "sessions"("token");
+
+-- CreateIndex
+CREATE INDEX "sessions_user_id_idx" ON "sessions"("user_id");
+
+-- CreateIndex
+CREATE INDEX "sessions_expires_at_idx" ON "sessions"("expires_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "worker_profiles_user_id_key" ON "worker_profiles"("user_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "escrows_task_id_key" ON "escrows"("task_id");
+CREATE UNIQUE INDEX "wallets_user_id_key" ON "wallets"("user_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "transactions_hash_key" ON "transactions"("hash");
+
+-- CreateIndex
+CREATE INDEX "IDX_transactions_walletId_blockTime" ON "transactions"("walletId", "blockTime");
+
+-- CreateIndex
+CREATE INDEX "tasks_client_id_idx" ON "tasks"("client_id");
+
+-- CreateIndex
+CREATE INDEX "tasks_status_idx" ON "tasks"("status");
+
+-- CreateIndex
+CREATE INDEX "tasks_category_idx" ON "tasks"("category");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "submissions_assignment_id_key" ON "submissions"("assignment_id");
 
+-- CreateIndex
+CREATE INDEX "error_logs_error_code_idx" ON "error_logs"("error_code");
+
+-- CreateIndex
+CREATE INDEX "error_logs_severity_idx" ON "error_logs"("severity");
+
+-- CreateIndex
+CREATE INDEX "error_logs_resolved_idx" ON "error_logs"("resolved");
+
+-- CreateIndex
+CREATE INDEX "error_logs_created_at_idx" ON "error_logs"("created_at");
+
+-- CreateIndex
+CREATE INDEX "error_logs_user_id_idx" ON "error_logs"("user_id");
+
 -- AddForeignKey
-ALTER TABLE "users" ADD CONSTRAINT "users_wallet_id_fkey" FOREIGN KEY ("wallet_id") REFERENCES "wallets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "worker_profiles" ADD CONSTRAINT "worker_profiles_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "kyc_attempts" ADD CONSTRAINT "kyc_attempts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "wallets" ADD CONSTRAINT "wallets_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "transactions" ADD CONSTRAINT "transactions_walletId_fkey" FOREIGN KEY ("walletId") REFERENCES "wallets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_actor_id_fkey" FOREIGN KEY ("actor_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "tasks" ADD CONSTRAINT "tasks_client_id_fkey" FOREIGN KEY ("client_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "escrows" ADD CONSTRAINT "escrows_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "tasks"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "assignments" ADD CONSTRAINT "assignments_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "tasks"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -285,3 +371,9 @@ ALTER TABLE "notifications" ADD CONSTRAINT "notifications_to_user_id_fkey" FOREI
 
 -- AddForeignKey
 ALTER TABLE "comms_logs" ADD CONSTRAINT "comms_logs_who_id_fkey" FOREIGN KEY ("who_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "error_logs" ADD CONSTRAINT "error_logs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "error_logs" ADD CONSTRAINT "error_logs_resolved_by_fkey" FOREIGN KEY ("resolved_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;

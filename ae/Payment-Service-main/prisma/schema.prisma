@@ -1,0 +1,63 @@
+// Payment Service Prisma Schema
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum TaskPaymentStatus {
+  pending
+  payment_done
+  paid_out
+  refunded
+  cancelled
+}
+
+// ============================================
+// MODELS
+// ============================================
+
+model User {
+  id            Int      @id @default(autoincrement())
+  userId        String   @unique @map("user_id") @db.VarChar(255)
+  walletAddress String   @map("wallet_address") @db.VarChar(255)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  tasks Task[]
+
+  @@index([userId])
+  @@index([walletAddress])
+  @@map("users")
+}
+
+model Task {
+  id         Int                @id @default(autoincrement())
+  taskId     String             @unique @map("task_id") @db.VarChar(255)
+  userId     String             @map("user_id") @db.VarChar(255)
+  budget     Decimal            @db.Decimal(20, 2)
+  quantity   Int
+  amount     Decimal            @db.Decimal(20, 2)
+  feePercent Decimal            @map("fee_percent") @db.Decimal(5, 2)
+  status     TaskPaymentStatus  @default(pending)
+  txHash     String?            @map("tx_hash") @db.VarChar(255)
+  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([status])
+  @@map("tasks")
+}

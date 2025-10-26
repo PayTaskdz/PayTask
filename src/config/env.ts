@@ -26,7 +26,21 @@ export const config = {
     s3BucketName: process.env.S3_BUCKET_NAME || 'paytask-submissions',
     enabled: process.env.AWS_ENABLED === 'true' || false,
   },
-
+  // Solana
+  solana: {
+    rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+    network: process.env.SOLANA_NETWORK || 'devnet',
+    usdcMintAddress: process.env.USDC_MINT_ADDRESS || 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
+    settlementWalletPublicKey: process.env.SETTLEMENT_WALLET_PUBLIC_KEY || '',
+    settlementWalletPrivateKey: process.env.SETTLEMENT_WALLET_PRIVATE_KEY || '',
+  },
+  server: {
+    port: parseInt(process.env.PORT || '3000'),
+    host: process.env.HOST || '0.0.0.0',
+  },
+  encryption: {
+    key: process.env.ENCRYPTION_KEY || '',
+  },
   // CORS
   corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:3001'],
 

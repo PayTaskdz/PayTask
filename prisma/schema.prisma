@@ -19,31 +19,6 @@ enum UserRole {
   worker
 }
 
-enum KycStatus {
-  pending
-  approved
-  rejected
-}
-
-enum WalletType {
-  custodial
-  external
-}
-
-enum TaskStatus {
-  draft
-  open
-  closed
-  expired
-}
-
-enum EscrowStatus {
-  pending
-  held
-  released
-  failed
-}
-
 enum AssignmentStatus {
   in_progress
   late
@@ -76,48 +51,85 @@ enum NotificationStatus {
   read
 }
 
+enum ErrorSeverity {
+  info
+  warning
+  error
+  critical
+}
+
+enum TransactionDirection {
+  in
+  out
+}
+
+enum TransactionStatus {
+  pending
+  confirmed
+  failed
+  pending_approval
+}
+
+enum TaskStatus {
+  draft
+  open
+  active
+  completed
+  refund
+  cancelled
+}
+
 // ============================================
 // MODELS
 // ============================================
 
 model User {
-  id        String    @id @default(uuid()) @db.Uuid
-  role      UserRole
-  email     String    @unique @db.VarChar(255)
-  walletId  String    @map("wallet_id") @db.Uuid
-  country   String?   @db.VarChar(100)
-  kycStatus KycStatus @default(pending) @map("kyc_status")
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                   String   @id @default(uuid()) @db.Uuid
+  email                String   @unique @db.VarChar(255)
+  username             String   @unique @db.VarChar(255)
+  passwordHash         String   @map("password_hash") @db.VarChar(255)
+  role                 UserRole @default(client)
+  isActive             Boolean  @default(true) @map("is_active")
+  fystackSessionCookie String?  @map("fystack_session_cookie") @db.VarChar(255)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  // Relations
-  wallet            Wallet          @relation(fields: [walletId], references: [id])
+  // Relations  
+  tasksCreated      Task[]         @relation("TaskClient")
   workerProfile     WorkerProfile?
-  kycAttempts       KycAttempt[]
+  wallet            Wallet[]
   auditLogs         AuditLog[]
-  tasksCreated      Task[]          @relation("TaskClient")
   assignments       Assignment[]
   payouts           Payout[]
-  ratingsGiven      Rating[]        @relation("RatingFrom")
-  ratingsReceived   Rating[]        @relation("RatingTo")
+  ratingsGiven      Rating[]       @relation("RatingFrom")
+  ratingsReceived   Rating[]       @relation("RatingTo")
   notifications     Notification[]
   commsLogs         CommsLog[]
   reviews           Review[]
+  errorLogs         ErrorLog[]     @relation("ErrorLogUser")
+  resolvedErrorLogs ErrorLog[]     @relation("ErrorLogResolver")
+  sessions          Session[]
 
-  @@map("users")
+  @@map("users")   
 }
 
-model Wallet {
-  id          String     @id @default(uuid()) @db.Uuid
-  userId      String     @map("user_id") @db.Uuid
-  type        WalletType
-  walletAddr  String     @unique @map("wallet_addr") @db.VarChar(255)
-  providerRef String?    @map("provider_ref") @db.VarChar(255)
-  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  isActive  Boolean  @default(true) @map("is_active")
+  userAgent String?  @map("user_agent")
+  ipAddress String?  @map("ip_address")
 
   // Relations
-  users User[]
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("wallets")
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
 }
 
 model WorkerProfile {
@@ -137,17 +149,47 @@ model WorkerProfile {
   @@map("worker_profiles")
 }
 
-model KycAttempt {
-  id          String    @id @default(uuid()) @db.Uuid
-  userId      String    @map("user_id") @db.Uuid
-  providerRef String?   @map("provider_ref") @db.VarChar(255)
-  status      KycStatus
-  requestedAt DateTime  @default(now()) @map("requested_at") @db.Timestamptz(6)
+model Wallet {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @unique @map("user_id") @db.Uuid
+  fystackWalletId    String   @map("fystack_wallet_id") @db.VarChar(255)
+  fystackWorkspaceId String   @map("fystack_workspace_id") @db.VarChar(255)
+  addresses          Json     @map("addresses")
+  walletName         String   @map("wallet_name") @db.VarChar(255)
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
 
-  @@map("kyc_attempts")
+  @@map("wallets")
+}
+
+model Transaction {
+  id          String                @id @default(uuid()) @db.Uuid
+  hash        String?               @unique @db.VarChar(255)
+  fromAddress String                @map("fromAddress") @db.VarChar(255)
+  toAddress   String                @map("toAddress") @db.VarChar(255)
+  amount      String
+  network     String
+  assetSymbol String                @map("assetSymbol")
+  assetName   String                @map("assetName")
+  fee         Decimal?              @db.Decimal(20, 10)
+  direction   TransactionDirection?
+  type        String
+  status      TransactionStatus     @default(pending)
+  blockTime   DateTime              @map("blockTime")
+  walletId    String                @map("walletId") @db.Uuid
+  createdAt   DateTime              @default(now()) @map("createdAt") @db.Timestamptz(6)
+  updatedAt   DateTime              @updatedAt @map("updatedAt") @db.Timestamptz(6)
+
+  // Relations
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId, blockTime], name: "IDX_transactions_walletId_blockTime")
+  @@map("transactions")
 }
 
 model AuditLog {
@@ -164,40 +206,30 @@ model AuditLog {
 }
 
 model Task {
-  id          String      @id @default(uuid()) @db.Uuid
-  clientId    String      @map("client_id") @db.Uuid
-  title       String      @db.VarChar(255)
-  description String?     @db.Text
-  category    String?     @db.VarChar(100)
-  reward      Decimal     @db.Decimal(10, 2)
-  qty         Int         @default(1)
-  budget      Decimal?    @db.Decimal(12, 2)
-  deadline    DateTime?   @db.Timestamptz(6)
-  status      TaskStatus  @default(draft)
-  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  id          String     @id @default(uuid()) @db.Uuid
+  clientId    String     @map("client_id") @db.Uuid
+  title       String     @db.VarChar(255)
+  description String?    @db.Text
+  category    String?    @db.VarChar(100)
+  reward      Decimal    @db.Decimal(10, 2)
+  qty         Int        @default(1)
+  budget      Decimal?   @db.Decimal(12, 2)
+  feePercent  Decimal    @default(5.00) @map("fee_percent") @db.Decimal(5, 2)
+  deadline    DateTime?  @db.Timestamptz(6)
+  status      TaskStatus @default(draft)
+  txHash      String?    @map("tx_hash") @db.VarChar(255)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   // Relations
   client      User         @relation("TaskClient", fields: [clientId], references: [id], onDelete: Cascade)
-  escrow      Escrow?
   assignments Assignment[]
   ratings     Rating[]
 
+  @@index([clientId])
+  @@index([status])
+  @@index([category])
   @@map("tasks")
-}
-
-model Escrow {
-  id         String       @id @default(uuid()) @db.Uuid
-  taskId     String       @unique @map("task_id") @db.Uuid
-  amount     Decimal      @db.Decimal(12, 2)
-  feeRate    Decimal      @map("fee_rate") @db.Decimal(5, 2)
-  status     EscrowStatus
-  txHashHold String?      @map("tx_hash_hold") @db.VarChar(255)
-  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  // Relations
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  @@map("escrows")
 }
 
 model Assignment {
@@ -316,4 +348,36 @@ model SystemPolicy {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("system_policies")
+}
+
+model ErrorLog {
+  id            String        @id @default(uuid()) @db.Uuid
+  errorCode     String        @map("error_code") @db.VarChar(255)
+  errorMessage  String        @map("error_message") @db.Text
+  errorStack    String?       @map("error_stack") @db.Text
+  endpoint      String?       @db.VarChar(255)
+  method        String?       @db.VarChar(10)
+  userId        String?       @map("user_id") @db.Uuid
+  requestBody   Json?         @map("request_body")
+  requestParams Json?         @map("request_params")
+  requestQuery  Json?         @map("request_query")
+  userAgent     String?       @map("user_agent") @db.Text
+  ipAddress     String?       @map("ip_address") @db.VarChar(45)
+  severity      ErrorSeverity @default(error)
+  resolved      Boolean       @default(false)
+  resolvedAt    DateTime?     @map("resolved_at") @db.Timestamptz(6)
+  resolvedBy    String?       @map("resolved_by") @db.Uuid
+  notes         String?       @db.Text
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  user     User? @relation("ErrorLogUser", fields: [userId], references: [id], onDelete: SetNull)
+  resolver User? @relation("ErrorLogResolver", fields: [resolvedBy], references: [id], onDelete: SetNull)
+
+  @@index([errorCode])
+  @@index([severity])
+  @@index([resolved])
+  @@index([createdAt])
+  @@index([userId])
+  @@map("error_logs")
 }

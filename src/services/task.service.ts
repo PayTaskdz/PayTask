@@ -3,20 +3,522 @@ import prisma from '../config/prisma';
 import redis from '../config/redis';
 import { config } from '../config/env';
 import { TaskDiscoveryQuery, TaskDiscoveryItem, PaginationMeta } from '../types/task.types';
+import { UserRoleValidator } from './user-role.validator';
+
+// System fee rate - FIXED at 5%
+const SYSTEM_FEE_RATE = 0.05; // 5%
+
+interface CreateTaskRequest {
+  title: string;
+  description?: string;
+  category?: string;
+  reward: number;
+  qty: number;
+  deadline?: Date;
+  idempotencyKey?: string;
+}
+
+interface UpdateTaskRequest {
+  title?: string;
+  description?: string;
+  category?: string;
+  reward?: number;
+  qty?: number;
+  deadline?: Date;
+}
+
+interface PublishTaskRequest {
+  taskId: string;
+  txHash?: string;
+}
+
+interface ListTasksQuery {
+  status?: string;
+  page: number;
+  limit: number;
+}
 
 export class TaskService {
+  async createTask(userId: string, data: CreateTaskRequest) {
+    console.log('🔵 START createTask:', { userId, ...data });
+
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Validate user is a client
+      await UserRoleValidator.validateClientRole(userId, tx);
+
+      // Calculate fee and budget
+      const rewardTotal = data.reward * data.qty;
+      const feePercent = SYSTEM_FEE_RATE * 100; // Convert to percentage (e.g., 5.00)
+      const fee = rewardTotal * SYSTEM_FEE_RATE; // Fee amount (5% of reward total)
+      const budget = rewardTotal + fee; // Total budget
+
+      console.log('💰 Budget calculated:', { rewardTotal, fee, budget, feePercent });
+
+      // Create draft task
+      const createdTask = await tx.task.create({
+        data: {
+          clientId: userId,
+          title: data.title,
+          description: data.description,
+          category: data.category,
+          reward: data.reward,
+          qty: data.qty,
+          budget: budget,
+          // feePercent will default to 5.00
+          deadline: data.deadline,
+          status: 'draft',
+        },
+      });
+
+      // Create audit log
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: 'create_task',
+          details: {
+            entityType: 'task',
+            entityId: createdTask.id,
+            taskTitle: createdTask.title,
+            rewardTotal: rewardTotal,
+            fee: fee,
+            budget: budget,
+            idempotencyKey: data.idempotencyKey,
+          },
+        },
+      });
+
+      console.log('✅ Task created:', createdTask.id);
+
+      return {
+        id: createdTask.id,
+        clientId: createdTask.clientId,
+        title: createdTask.title,
+        description: createdTask.description,
+        category: createdTask.category,
+        reward: createdTask.reward.toString(),
+        qty: createdTask.qty,
+        budget: createdTask.budget?.toString() || null,
+        deadline: createdTask.deadline?.toISOString() || null,
+        status: createdTask.status,
+        createdAt: createdTask.createdAt.toISOString(),
+      };
+    });
+  }
+
+  /**
+   * Update draft task
+   * EC-B1: No update after publish
+   */
+  async updateTask(userId: string, taskId: string, data: UpdateTaskRequest) {
+    console.log('🔵 START updateTask:', { userId, taskId, ...data });
+
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Validate user is a client
+      await UserRoleValidator.validateClientRole(userId, tx);
+
+      // Get task with lock
+      const task = await tx.task.findUnique({
+        where: { id: taskId },
+      });
+
+      if (!task) {
+        throw new Error('TASK_NOT_FOUND');
+      }
+
+      // Verify ownership
+      if (task.clientId !== userId) {
+        throw new Error('NOT_OWNER');
+      }
+
+      // Block update after publish
+      if (task.status !== 'draft') {
+        throw new Error('CANNOT_UPDATE_PUBLISHED');
+      }
+
+      // Recalculate fee and budget if reward or qty changed
+      let budget = task.budget;
+      if (data.reward !== undefined || data.qty !== undefined) {
+        const newReward = data.reward ?? Number(task.reward);
+        const newQty = data.qty ?? task.qty;
+        const rewardTotal = newReward * newQty;
+        const fee = rewardTotal * SYSTEM_FEE_RATE;
+        budget = new Prisma.Decimal(rewardTotal + fee);
+      }
+
+      // Update task
+      const updatedTask = await tx.task.update({
+        where: { id: taskId },
+        data: {
+          title: data.title,
+          description: data.description,
+          category: data.category,
+          reward: data.reward,
+          qty: data.qty,
+          budget: budget,
+          deadline: data.deadline,
+        },
+      });
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: 'update_task',
+          details: {
+            entityType: 'task',
+            entityId: taskId,
+            changes: data,
+          } as any,
+        },
+      });
+
+      console.log('✅ Task updated:', taskId);
+
+      return {
+        id: updatedTask.id,
+        title: updatedTask.title,
+        description: updatedTask.description,
+        category: updatedTask.category,
+        reward: updatedTask.reward.toString(),
+        qty: updatedTask.qty,
+        budget: updatedTask.budget?.toString() || null,
+        feePercent: updatedTask.feePercent.toString(),
+        deadline: updatedTask.deadline?.toISOString() || null,
+        status: updatedTask.status,
+        updatedAt: updatedTask.createdAt.toISOString(),
+      };
+    });
+  }
+  /**
+   * Update task status
+   * @param taskId - The ID of the task to update
+   * @param status - The new status to set
+   * Simply change status
+   */
+  async updateTaskStatus(taskId: string, status: 'draft' | 'open' | 'active' | 'completed' | 'cancelled' | 'refund') {
+    console.log('🔵 START updateTaskStatus:', { taskId, status });
+
+    try {
+      // Get task first to check if it exists
+      const task = await prisma.task.findUnique({
+        where: { id: taskId },
+      });
+
+      if (!task) {
+        throw new Error('TASK_NOT_FOUND');
+      }
+
+      // Update task status
+      const updatedTask = await prisma.task.update({
+        where: { id: taskId },
+        data: { status },
+      });
+
+      // Create audit log
+      await prisma.auditLog.create({
+        data: {
+          actorId: task.clientId,
+          action: 'update_task_status',
+          details: {
+            entityType: 'task',
+            entityId: taskId,
+            oldStatus: task.status,
+            newStatus: status,
+          },
+        },
+      });
+
+      console.log('✅ Task status updated:', { taskId, oldStatus: task.status, newStatus: status });
+
+      return {
+        id: updatedTask.id,
+        status: updatedTask.status,
+        updatedAt: updatedTask.updatedAt.toISOString(),
+      };
+    } catch (error: any) {
+      if (error.code === 'P2025') {
+        throw new Error('TASK_NOT_FOUND');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Publish task
+   * Simply changes status from draft to open
+   */
+  async publishTask(userId: string, data: PublishTaskRequest) {
+    console.log('🔵 START publishTask:', { userId, ...data });
+
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Validate user is a client
+      await UserRoleValidator.validateClientRole(userId, tx);
+
+      // Get task
+      const task = await tx.task.findUnique({
+        where: { id: data.taskId },
+      });
+
+      if (!task) {
+        throw new Error('TASK_NOT_FOUND');
+      }
+
+      // Verify ownership
+      if (task.clientId !== userId) {
+        throw new Error('NOT_OWNER');
+      }
+
+      // Block if already published
+      if (task.status !== 'draft') {
+        throw new Error('ALREADY_PUBLISHED');
+      }
+
+      // Publish task
+      const publishedTask = await tx.task.update({
+        where: { id: data.taskId },
+        data: {
+          status: 'open',
+        },
+      });
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: 'publish_task',
+          details: {
+            entityType: 'task',
+            entityId: data.taskId,
+            budget: task.budget?.toString(),
+            txHash: data.txHash,
+          },
+        },
+      });
+
+      console.log('✅ Task published:', data.taskId);
+
+      return {
+        id: publishedTask.id,
+        status: publishedTask.status,
+        budget: publishedTask.budget?.toString() || '0',
+        publishedAt: publishedTask.createdAt.toISOString(),
+      };
+    });
+  }
+  // /**
+  //    * Get tasks by userId
+  //    */
+  // async getTasksByUserId(userId: string): Promise<Task[]> {
+  //   const tasks = await prisma.task.findMany({
+  //     where: { userId },
+  //     orderBy: { createdAt: 'desc' },
+  //   });
+
+  //   return tasks.map((task) => ({
+  //     id: task.id,
+  //     taskId: task.taskId,
+  //     userId: task.userId,
+  //     amount: Number(task.amount),
+  //     budget: Number(task.budget),
+  //     quantity: task.quantity,
+  //     feePercent: Number(task.feePercent),
+  //     status: task.status,
+  //     txHash: task.txHash || undefined,
+  //     createdAt: task.createdAt,
+  //     updatedAt: task.updatedAt,
+  //   }));
+  // }
+  // /**
+  //    * Get tasks by status
+  //    */
+  // async getTasksByStatus(status: TaskPaymentStatus): Promise<Task[]> {
+  //   const tasks = await prisma.task.findMany({
+  //     where: { status },
+  //     orderBy: { createdAt: 'desc' },
+  //   });
+
+  //   return tasks.map((task) => ({
+  //     id: task.id,
+  //     taskId: task.taskId,
+  //     userId: task.userId,
+  //     amount: Number(task.amount),
+  //     budget: Number(task.budget),
+  //     quantity: task.quantity,
+  //     feePercent: Number(task.feePercent),
+  //     status: task.status,
+  //     txHash: task.txHash || undefined,
+  //     createdAt: task.createdAt,
+  //     updatedAt: task.updatedAt,
+  //   }));
+  // }
+  // /**
+  //    * Update task status
+  //    */
+  // async updateTaskStatus(
+  //   taskId: string,
+  //   status: TaskPaymentStatus,
+  //   txHash?: string
+  // ): Promise<Task> {
+  //   try {
+  //     const updated = await prisma.task.update({
+  //       where: { taskId },
+  //       data: {
+  //         status,
+  //         ...(txHash && { txHash }),
+  //       },
+  //     });
+
+  //     return {
+  //       id: updated.id,
+  //       taskId: updated.taskId,
+  //       userId: updated.userId,
+  //       amount: Number(updated.amount),
+  //       budget: Number(updated.budget),
+  //       quantity: updated.quantity,
+  //       feePercent: Number(updated.feePercent),
+  //       status: updated.status,
+  //       txHash: updated.txHash || undefined,
+  //       createdAt: updated.createdAt,
+  //       updatedAt: updated.updatedAt,
+  //     };
+  //   } catch (error: any) {
+  //     if (error.code === 'P2025') {
+  //       // Record not found
+  //       throw new Error('Task not found');
+  //     }
+  //     throw error;
+  //   }
+  // }
+  /**
+   * Delete task
+   * Only draft tasks can be deleted
+   */
+  async deleteTask(userId: string, taskId: string) {
+    console.log('🔵 START deleteTask:', { userId, taskId });
+
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Validate user is a client
+      await UserRoleValidator.validateClientRole(userId, tx);
+
+      // Get task
+      const task = await tx.task.findUnique({
+        where: { id: taskId },
+      });
+
+      if (!task) {
+        throw new Error('TASK_NOT_FOUND');
+      }
+
+      // Verify ownership
+      if (task.clientId !== userId) {
+        throw new Error('NOT_OWNER');
+      }
+
+      // Only allow deleting draft tasks
+      if (task.status !== 'draft') {
+        throw new Error('CANNOT_DELETE_PUBLISHED');
+      }
+
+      // Delete task (CASCADE will delete related records)
+      await tx.task.delete({
+        where: { id: taskId },
+      });
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: 'delete_task',
+          details: {
+            entityType: 'task',
+            entityId: taskId,
+            taskTitle: task.title,
+            budget: task.budget?.toString(),
+          },
+        },
+      });
+
+      console.log('✅ Task deleted:', taskId);
+
+      return {
+        success: true,
+        message: 'Task deleted successfully',
+        taskId: taskId,
+      };
+    });
+  }
+
+  /**
+   * List client's tasks
+   */
+  async listTasks(userId: string, query: ListTasksQuery) {
+    console.log('🔵 listTasks:', { userId, ...query });
+
+    // Validate user is a client
+    await UserRoleValidator.validateClientRole(userId);
+
+    const { status, page, limit } = query;
+    const skip = (page - 1) * limit;
+
+    // Build WHERE clause
+    const where: Prisma.TaskWhereInput = {
+      clientId: userId,
+    };
+
+    if (status) {
+      where.status = status as any;
+    }
+
+    // Get total count
+    const total = await prisma.task.count({ where });
+
+    // Get tasks
+    const tasksResult = await prisma.task.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    });
+
+    const tasks = tasksResult.map((task: typeof tasksResult[number]) => ({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      category: task.category,
+      reward: task.reward.toString(),
+      qty: task.qty,
+      budget: task.budget?.toString() || null,
+      deadline: task.deadline?.toISOString() || null,
+      status: task.status,
+      createdAt: task.createdAt.toISOString(),
+    }));
+
+    const totalPages = Math.ceil(total / limit);
+
+    console.log('✅ Tasks listed:', { total, page, totalPages });
+
+    return {
+      tasks,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    };
+  }
   /**
    * Get available tasks for workers with filtering and pagination
    * Excludes tasks worker already accepted
    */
   async discoverTasks(
     query: TaskDiscoveryQuery,
-    workerId?: string
+    userId?: string
   ): Promise<{ data: TaskDiscoveryItem[]; pagination: PaginationMeta }> {
     const { category, minReward, maxReward, sortBy, order, page, limit } = query;
 
     // Build cache key
-    const cacheKey = `tasks:discover:${JSON.stringify({ ...query, workerId })}`;
+    const cacheKey = `tasks:discover:${JSON.stringify({ ...query, userId })}`;
 
     // Try to get from cache
     const cached = await redis.get(cacheKey);
@@ -27,9 +529,6 @@ export class TaskService {
     // Build where clause
     const where: Prisma.TaskWhereInput = {
       status: 'open',
-      escrow: {
-        status: 'held',
-      },
     };
 
     // Filter by category
@@ -49,10 +548,10 @@ export class TaskService {
     }
 
     // Exclude tasks worker already accepted
-    if (workerId) {
+    if (userId) {
       where.assignments = {
         none: {
-          workerId: workerId,
+          workerId: userId,
         },
       };
     }
@@ -94,13 +593,7 @@ export class TaskService {
         client: {
           select: {
             id: true,
-            country: true,
-          },
-        },
-        escrow: {
-          select: {
-            amount: true,
-            status: true,
+            email: true,
           },
         },
         _count: {
@@ -124,14 +617,8 @@ export class TaskService {
       createdAt: task.createdAt.toISOString(),
       client: {
         id: task.client.id,
-        country: task.client.country,
+        email: task.client.email,
       },
-      escrow: task.escrow
-        ? {
-            amount: task.escrow.amount.toString(),
-            status: task.escrow.status,
-          }
-        : null,
       _count: {
         assignments: task._count.assignments,
       },
@@ -183,13 +670,6 @@ export class TaskService {
           select: {
             id: true,
             email: true,
-            country: true,
-          },
-        },
-        escrow: {
-          select: {
-            amount: true,
-            status: true,
           },
         },
         _count: {
@@ -214,14 +694,7 @@ export class TaskService {
       client: {
         id: task.client.id,
         email: task.client.email,
-        country: task.client.country,
       },
-      escrow: task.escrow
-        ? {
-            amount: task.escrow.amount.toString(),
-            status: task.escrow.status,
-          }
-        : null,
       _count: {
         assignments: task._count.assignments,
       },
@@ -243,11 +716,9 @@ export class TaskService {
         client: {
           select: {
             id: true,
-            country: true,
             email: true,
           },
         },
-        escrow: true,
         assignments: {
           include: {
             worker: {
@@ -275,21 +746,11 @@ export class TaskService {
       reward: task.reward.toString(),
       qty: task.qty,
       budget: task.budget?.toString() || null,
+      feePercent: task.feePercent.toString(),
       deadline: task.deadline?.toISOString() || null,
       status: task.status,
       createdAt: task.createdAt.toISOString(),
       client: task.client,
-      escrow: task.escrow
-        ? {
-            id: task.escrow.id,
-            taskId: task.escrow.taskId,
-            amount: task.escrow.amount.toString(),
-            feeRate: task.escrow.feeRate.toString(),
-            status: task.escrow.status,
-            txHashHold: task.escrow.txHashHold,
-            createdAt: task.escrow.createdAt.toISOString(),
-          }
-        : null,
       assignments: task.assignments.map((assignment) => ({
         id: assignment.id,
         taskId: assignment.taskId,

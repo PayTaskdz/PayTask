@@ -26,12 +26,8 @@ export interface TaskDiscoveryItem {
   createdAt: string;
   client: {
     id: string;
-    country: string | null;
+    email: string;
   };
-  escrow: {
-    amount: string;
-    status: string;
-  } | null;
   _count: {
     assignments: number;
   };

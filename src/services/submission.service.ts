@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../config/prisma';
 import { QAFlags } from '../types/submission.types';
 
@@ -15,7 +16,7 @@ export class SubmissionService {
       mimeType: string;
     }
   ) {
-    return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1. Get assignment with task
       const assignment = await tx.assignment.findUnique({
         where: { id: assignmentId },

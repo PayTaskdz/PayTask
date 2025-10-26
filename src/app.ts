@@ -9,6 +9,9 @@ import { taskRoutes } from './routes/task.routes';
 import { statsRoutes } from './routes/stats.routes';
 import { assignmentRoutes } from './routes/assignment.routes';
 import { submissionRoutes } from './routes/submission.routes';
+import { errorlogRoutes } from './routes/errorlog.routes';
+import { ratingRoutes } from './routes/rating.routes';
+import { reviewRoutes } from './routes/review.routes';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -83,6 +86,18 @@ export async function buildApp() {
         {
           name: 'Statistics',
           description: 'Statistics and analytics endpoints',
+        },
+        {
+          name: 'Ratings',
+          description: 'User rating and feedback endpoints',
+        },
+        {
+          name: 'Reviews',
+          description: 'Submission review and approval endpoints',
+        },
+        {
+          name: 'Error Logs',
+          description: 'Error logging and monitoring endpoints',
         },
         {
           name: 'Health',
@@ -220,6 +235,27 @@ export async function buildApp() {
       await instance.register(submissionRoutes);
     },
     { prefix: '/api/submissions' }
+  );
+
+  await fastify.register(
+    async (instance) => {
+      await instance.register(errorlogRoutes);
+    },
+    { prefix: '/api/errorlogs' }
+  );
+
+  await fastify.register(
+    async (instance) => {
+      await instance.register(ratingRoutes);
+    },
+    { prefix: '/api/ratings' }
+  );
+
+  await fastify.register(
+    async (instance) => {
+      await instance.register(reviewRoutes);
+    },
+    { prefix: '/api/reviews' }
   );
 
   // 404 handler
