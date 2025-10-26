@@ -34,7 +34,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
           username: { type: 'string', minLength: 3, maxLength: 50 },
           email: { type: 'string', format: 'email' },
           password: { type: 'string', minLength: 6 },
-          role: { type: 'string', enum: ['WORKER', 'CLIENT'], default: 'CLIENT' }
+          role: { type: 'string', enum: ['worker', 'client'], default: 'client' }
         }
       },
       response: {
@@ -251,7 +251,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       const user = await fastify.prisma.user.findUnique({
         where: { email },
         include: {
-          wallets: {
+          wallet: {
             where: { isActive: true },
             take: 1
           }
@@ -285,7 +285,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         ipAddress,
       });
 
-      const wallet = user.wallets && user.wallets.length > 0 ? user.wallets[0] : null;
+      const wallet = user.wallet && user.wallet.length > 0 ? user.wallet[0] : null;
 
       reply.send({
         success: true,

@@ -61,10 +61,26 @@ export async function walletRoutes(fastify: FastifyInstance) {
           });
         }
 
-        if (!user.walletAddress) {
+        // Get wallet from Wallet table using userId
+        const wallet = await fastify.prisma.wallet.findUnique({
+          where: { userId: task.clientId }
+        });
+
+        if (!wallet) {
           return reply.code(400).send({
             success: false,
-            error: 'User wallet address not found',
+            error: 'User wallet not found',
+          });
+        }
+
+        // Extract Solana wallet address from addresses JSON
+        const addresses = wallet.addresses as any;
+        const walletAddress = addresses?.solana || addresses?.SOL;
+
+        if (!walletAddress) {
+          return reply.code(400).send({
+            success: false,
+            error: 'Solana wallet address not found',
           });
         }
 
@@ -72,8 +88,8 @@ export async function walletRoutes(fastify: FastifyInstance) {
         const totalAmount = parseFloat(task.budget || '0');
         
         // Fetch user wallet USDC balance from blockchain
-        const userBalance = await solanaService.getUsdcBalance(user.walletAddress);
-        console.log(`Checking balance for wallet ${user.walletAddress}: ${userBalance} USDC`);
+        const userBalance = await solanaService.getUsdcBalance(walletAddress);
+        console.log(`Checking balance for wallet ${walletAddress}: ${userBalance} USDC`);
 
         // Check if user has enough balance
         if (userBalance < totalAmount) {
@@ -81,7 +97,7 @@ export async function walletRoutes(fastify: FastifyInstance) {
             success: false,
             error: 'Insufficient balance',
             details: {
-              userWallet: user.walletAddress,
+              userWallet: walletAddress,
               currentBalance: userBalance,
               requiredAmount: totalAmount,
               shortage: parseFloat((totalAmount - userBalance).toFixed(2)),
@@ -90,7 +106,7 @@ export async function walletRoutes(fastify: FastifyInstance) {
         }
 
         // Mock: Transfer total amount to settlement wallet
-        console.log(`[MOCK] Transferring ${totalAmount} USDC from user wallet ${user.walletAddress} to settlement wallet ${config.solana.settlementWalletPublicKey}`);
+        console.log(`[MOCK] Transferring ${totalAmount} USDC from user wallet ${walletAddress} to settlement wallet ${config.solana.settlementWalletPublicKey}`);
 
         // Update task status to open (published with payment)
         // Note: Task service doesn't have updateTaskStatus method, we need to use publishTask
@@ -99,7 +115,7 @@ export async function walletRoutes(fastify: FastifyInstance) {
           success: true,
           message: 'Escrow completed. Task Published',
           transfer: {
-            fromWallet: user.walletAddress,
+            fromWallet: walletAddress,
             toWallet: config.solana.settlementWalletPublicKey,
             totalAmount: totalAmount,
             note: 'Transfer to settlement wallet',
@@ -163,19 +179,35 @@ export async function walletRoutes(fastify: FastifyInstance) {
           });
         }
 
-        if (!recipient.walletAddress) {
+        // Get wallet from Wallet table using userId
+        const recipientWallet = await fastify.prisma.wallet.findUnique({
+          where: { userId: recipientUserId }
+        });
+
+        if (!recipientWallet) {
           return reply.code(400).send({
             success: false,
-            error: 'Recipient wallet address not found',
+            error: 'Recipient wallet not found',
+          });
+        }
+
+        // Extract Solana wallet address from addresses JSON
+        const addresses = recipientWallet.addresses as any;
+        const recipientWalletAddress = addresses?.solana || addresses?.SOL;
+
+        if (!recipientWalletAddress) {
+          return reply.code(400).send({
+            success: false,
+            error: 'Recipient Solana wallet address not found',
           });
         }
 
         // Send USDC from settlement wallet to worker wallet
         // Use reward amount (not budget which includes fee)
         const transferAmount = parseFloat(task.reward);
-        console.log(`Transferring ${transferAmount} USDC to recipient wallet ${recipient.walletAddress}`);
+        console.log(`Transferring ${transferAmount} USDC to recipient wallet ${recipientWalletAddress}`);
         const transferResult = await solanaService.transferToWallet(
-          recipient.walletAddress,
+          recipientWalletAddress,
           transferAmount
         );
 
@@ -188,7 +220,7 @@ export async function walletRoutes(fastify: FastifyInstance) {
           payout: {
             taskId: task.id,
             recipientUserId: recipient.userId,
-            recipientWallet: recipient.walletAddress,
+            recipientWallet: recipientWalletAddress,
             amount: transferAmount,
             fromWallet: config.solana.settlementWalletPublicKey,
             signature: transferResult.signature,
@@ -231,28 +263,44 @@ export async function walletRoutes(fastify: FastifyInstance) {
           });
         }
 
-        if (!user.walletAddress) {
+        // Get wallet from Wallet table using userId
+        const wallet = await fastify.prisma.wallet.findUnique({
+          where: { userId: userId }
+        });
+
+        if (!wallet) {
           return reply.code(400).send({
             success: false,
-            error: 'User wallet address not found',
+            error: 'User wallet not found',
+          });
+        }
+
+        // Extract Solana wallet address from addresses JSON
+        const addresses = wallet.addresses as any;
+        const userWalletAddress = addresses?.solana || addresses?.SOL;
+
+        if (!userWalletAddress) {
+          return reply.code(400).send({
+            success: false,
+            error: 'User Solana wallet address not found',
           });
         }
 
         // Verify wallet address matches user's wallet
-        if (user.walletAddress !== walletAddress) {
+        if (userWalletAddress !== walletAddress) {
           return reply.code(400).send({
             success: false,
             error: 'Wallet address does not match user wallet',
             details: {
               providedWallet: walletAddress,
-              userWallet: user.walletAddress,
+              userWallet: userWalletAddress,
             },
           });
         }
 
         // Fetch user wallet USDC balance from blockchain
-        const userBalance = await solanaService.getUsdcBalance(user.walletAddress);
-        console.log(`Checking balance for wallet ${user.walletAddress}: ${userBalance} USDC`);
+        const userBalance = await solanaService.getUsdcBalance(userWalletAddress);
+        console.log(`Checking balance for wallet ${userWalletAddress}: ${userBalance} USDC`);
 
         // Check if user has enough balance
         const claimAmount = parseFloat(amount.toFixed(2));
@@ -261,7 +309,7 @@ export async function walletRoutes(fastify: FastifyInstance) {
             success: false,
             error: 'Insufficient balance',
             details: {
-              userWallet: user.walletAddress,
+              userWallet: userWalletAddress,
               currentBalance: userBalance,
               requiredAmount: claimAmount,
               shortage: parseFloat((claimAmount - userBalance).toFixed(2)),
@@ -270,14 +318,14 @@ export async function walletRoutes(fastify: FastifyInstance) {
         }
 
         // Mock: Transfer amount to recipient (wallet address)
-        console.log(`[MOCK] Claiming ${claimAmount} USDC from user wallet ${user.walletAddress} to recipient ${walletAddress}`);
+        console.log(`[MOCK] Claiming ${claimAmount} USDC from user wallet ${userWalletAddress} to recipient ${walletAddress}`);
 
         return reply.send({
           success: true,
           message: 'Claim completed successfully',
           claim: {
             userId: user.userId,
-            fromWallet: user.walletAddress,
+            fromWallet: userWalletAddress,
             recipientWallet: walletAddress,
             amount: claimAmount,
             note: 'Claim transfer (mocked)',
@@ -325,10 +373,26 @@ export async function walletRoutes(fastify: FastifyInstance) {
           });
         }
 
-        if (!user.walletAddress) {
+        // Get wallet from Wallet table using userId
+        const wallet = await fastify.prisma.wallet.findUnique({
+          where: { userId: task.clientId }
+        });
+
+        if (!wallet) {
           return reply.code(400).send({
             success: false,
-            error: 'User wallet address not found',
+            error: 'User wallet not found',
+          });
+        }
+
+        // Extract Solana wallet address from addresses JSON
+        const addresses = wallet.addresses as any;
+        const userWalletAddress = addresses?.solana || addresses?.SOL;
+
+        if (!userWalletAddress) {
+          return reply.code(400).send({
+            success: false,
+            error: 'User Solana wallet address not found',
           });
         }
 
@@ -336,7 +400,7 @@ export async function walletRoutes(fastify: FastifyInstance) {
         const refundAmount = parseFloat(task.reward) * task.qty;
 
         // Transfer refund from settlement wallet to user wallet
-        console.log(`[MOCK] Refunding ${refundAmount} USDC from settlement wallet ${config.solana.settlementWalletPublicKey} to user wallet ${user.walletAddress}`);
+        console.log(`[MOCK] Refunding ${refundAmount} USDC from settlement wallet ${config.solana.settlementWalletPublicKey} to user wallet ${userWalletAddress}`);
 
         // Update task status to refunded
         await taskService.updateTaskStatus(task.id, 'refund');
@@ -347,7 +411,7 @@ export async function walletRoutes(fastify: FastifyInstance) {
           refund: {
             taskId: task.id,
             userId: user.userId,
-            userWallet: user.walletAddress,
+            userWallet: userWalletAddress,
             fromWallet: config.solana.settlementWalletPublicKey,
             refundAmount: refundAmount,
             note: 'Refund transfer from settlement wallet to user wallet (fee not included)',
