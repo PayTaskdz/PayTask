@@ -8,10 +8,11 @@ interface EscrowBody {
   taskId: string;
 }
 
-interface VerifyPaymentBody {
-  taskId: string;
-  txHash: string;
-}
+// Commented out - not used currently
+// interface VerifyPaymentBody {
+//   taskId: string;
+//   txHash: string;
+// }
 
 interface PayoutBody {
   taskId: string;
@@ -32,6 +33,77 @@ export async function walletRoutes(fastify: FastifyInstance) {
   // Route 1: Escrow - Get instructions to transfer to user wallet
   fastify.post<{ Body: EscrowBody }>(
     '/payment/escrow',
+    {
+      schema: {
+        description: 'Lock funds in escrow for a task (Client publishes task with payment)',
+        tags: ['Wallet'],
+        body: {
+          type: 'object',
+          required: ['taskId'],
+          properties: {
+            taskId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'Task ID to lock escrow for',
+            },
+          },
+        },
+        response: {
+          200: {
+            description: 'Escrow completed successfully',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              message: { type: 'string' },
+              transfer: {
+                type: 'object',
+                properties: {
+                  fromWallet: { type: 'string', description: 'Client wallet address' },
+                  toWallet: { type: 'string', description: 'Settlement wallet address' },
+                  totalAmount: { type: 'number', description: 'Total amount locked (reward + fee)' },
+                  note: { type: 'string' },
+                },
+              },
+              task: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  clientId: { type: 'string' },
+                  budget: { type: 'string' },
+                  feePercent: { type: 'string' },
+                  status: { type: 'string' },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Bad request (missing taskId, wallet not found, insufficient balance)',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              error: { type: 'string' },
+              details: {
+                type: 'object',
+                properties: {
+                  userWallet: { type: 'string' },
+                  currentBalance: { type: 'number' },
+                  requiredAmount: { type: 'number' },
+                  shortage: { type: 'number' },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'Task or user not found',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              error: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
     async (request: FastifyRequest<{ Body: EscrowBody }>, reply: FastifyReply) => {
       try {
         const { taskId } = request.body;
@@ -141,6 +213,73 @@ export async function walletRoutes(fastify: FastifyInstance) {
   // Route 3: Payout to recipient
   fastify.post<{ Body: PayoutBody }>(
     '/payment/payout',
+    {
+      schema: {
+        description: 'Release payment from escrow to worker after task completion',
+        tags: ['Wallet'],
+        body: {
+          type: 'object',
+          required: ['taskId', 'recipientUserId'],
+          properties: {
+            taskId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'Completed task ID',
+            },
+            recipientUserId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'Worker user ID to receive payment',
+            },
+          },
+        },
+        response: {
+          200: {
+            description: 'Payout completed successfully',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              message: { type: 'string' },
+              payout: {
+                type: 'object',
+                properties: {
+                  taskId: { type: 'string' },
+                  recipientUserId: { type: 'string' },
+                  recipientWallet: { type: 'string', description: 'Worker wallet address' },
+                  amount: { type: 'number', description: 'Reward amount (excluding fee)' },
+                  fromWallet: { type: 'string', description: 'Settlement wallet address' },
+                  signature: { type: 'string', description: 'Blockchain transaction signature' },
+                },
+              },
+              task: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  status: { type: 'string' },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Bad request (task not completed, wallet not found)',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              error: { type: 'string' },
+              taskStatus: { type: 'string' },
+            },
+          },
+          404: {
+            description: 'Task or recipient not found',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              error: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
     async (request: FastifyRequest<{ Body: PayoutBody }>, reply: FastifyReply) => {
       try {
         const { taskId, recipientUserId } = request.body;
@@ -243,6 +382,78 @@ export async function walletRoutes(fastify: FastifyInstance) {
   // Route 4: Claim
   fastify.post<{ Body: WithdrawBody }>(
     '/payment/withdraw',
+    {
+      schema: {
+        description: 'Withdraw/claim funds from user wallet',
+        tags: ['Wallet'],
+        body: {
+          type: 'object',
+          required: ['userId', 'walletAddress', 'amount'],
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'User ID',
+            },
+            walletAddress: {
+              type: 'string',
+              description: 'Solana wallet address to withdraw to',
+            },
+            amount: {
+              type: 'number',
+              minimum: 0.01,
+              description: 'Amount to withdraw in USDC',
+            },
+          },
+        },
+        response: {
+          200: {
+            description: 'Withdrawal completed successfully',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              message: { type: 'string' },
+              claim: {
+                type: 'object',
+                properties: {
+                  userId: { type: 'string' },
+                  fromWallet: { type: 'string', description: 'User wallet address' },
+                  recipientWallet: { type: 'string', description: 'Recipient wallet address' },
+                  amount: { type: 'number' },
+                  note: { type: 'string' },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Bad request (missing fields, wallet mismatch, insufficient balance)',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              error: { type: 'string' },
+              details: {
+                type: 'object',
+                properties: {
+                  providedWallet: { type: 'string' },
+                  userWallet: { type: 'string' },
+                  currentBalance: { type: 'number' },
+                  requiredAmount: { type: 'number' },
+                  shortage: { type: 'number' },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'User not found',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              error: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
     async (request: FastifyRequest<{ Body: WithdrawBody }>, reply: FastifyReply) => {
       try {
         const { userId, walletAddress, amount } = request.body;
@@ -344,6 +555,67 @@ export async function walletRoutes(fastify: FastifyInstance) {
   // Route 5: Refund
   fastify.post<{ Body: RefundBody }>(
     '/payment/refund',
+    {
+      schema: {
+        description: 'Refund locked escrow funds back to client (task cancelled or failed)',
+        tags: ['Wallet'],
+        body: {
+          type: 'object',
+          required: ['taskId'],
+          properties: {
+            taskId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'Task ID to refund',
+            },
+          },
+        },
+        response: {
+          200: {
+            description: 'Refund completed successfully',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              message: { type: 'string' },
+              refund: {
+                type: 'object',
+                properties: {
+                  taskId: { type: 'string' },
+                  userId: { type: 'string' },
+                  userWallet: { type: 'string', description: 'Client wallet address' },
+                  fromWallet: { type: 'string', description: 'Settlement wallet address' },
+                  refundAmount: { type: 'number', description: 'Refunded amount (fee not included)' },
+                  note: { type: 'string' },
+                },
+              },
+              task: {
+                type: 'object',
+                properties: {
+                  taskId: { type: 'string' },
+                  status: { type: 'string' },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Bad request (wallet not found)',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              error: { type: 'string' },
+            },
+          },
+          404: {
+            description: 'Task or user not found',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              error: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
     async (request: FastifyRequest<{ Body: RefundBody }>, reply: FastifyReply) => {
       try {
         const { taskId } = request.body;

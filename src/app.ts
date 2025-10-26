@@ -12,6 +12,11 @@ import { submissionRoutes } from './routes/submission.routes';
 import { errorlogRoutes } from './routes/errorlog.routes';
 import { ratingRoutes } from './routes/rating.routes';
 import { reviewRoutes } from './routes/review.routes';
+import { authRoutes } from './routes/auth.routes';
+import { userRoutes } from './routes/users.routes';
+import { walletRoutes } from './routes/wallet.routes';
+import prisma from './config/prisma';
+import authPlugin from './plugins/auth';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -29,6 +34,12 @@ export async function buildApp() {
           : undefined,
     },
   });
+
+  // Decorate fastify with prisma
+  fastify.decorate('prisma', prisma);
+
+  // Register auth plugin (must be before routes that use authentication)
+  await fastify.register(authPlugin);
 
   // Register plugins
   await fastify.register(cors, {
@@ -94,6 +105,18 @@ export async function buildApp() {
         {
           name: 'Reviews',
           description: 'Submission review and approval endpoints',
+        },
+        {
+          name: 'Authentication',
+          description: 'User authentication and authorization endpoints',
+        },
+        {
+          name: 'Users',
+          description: 'User profile and management endpoints',
+        },
+        {
+          name: 'Wallet',
+          description: 'Wallet and transaction management endpoints',
         },
         {
           name: 'Error Logs',
@@ -209,6 +232,27 @@ export async function buildApp() {
   );
 
   // Register routes
+  await fastify.register(
+    async (instance) => {
+      await instance.register(authRoutes);
+    },
+    { prefix: '/api/auth' }
+  );
+
+  await fastify.register(
+    async (instance) => {
+      await instance.register(userRoutes);
+    },
+    { prefix: '/api/users' }
+  );
+
+  await fastify.register(
+    async (instance) => {
+      await instance.register(walletRoutes);
+    },
+    { prefix: '/api/wallet' }
+  );
+
   await fastify.register(
     async (instance) => {
       await instance.register(taskRoutes);

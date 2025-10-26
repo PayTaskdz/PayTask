@@ -103,6 +103,31 @@ export class FystackService {
     await this.ensureAuthenticated();
   }
 
+  /**
+   * Check if FyStack service is available and connected
+   */
+  async checkConnection(): Promise<{ connected: boolean; message: string }> {
+    if (!this.axiosInstance) {
+      return { connected: false, message: 'FyStack service is disabled (no API URL configured)' };
+    }
+
+    const email = process.env.FYSTACK_EMAIL;
+    const password = process.env.FYSTACK_PASSWORD;
+    const workspaceId = process.env.FYSTACK_WORKSPACE_ID;
+
+    if (!email || !password || !workspaceId || email === 'YOUR_FYSTACK_EMAIL_HERE') {
+      return { connected: false, message: 'FyStack credentials not configured' };
+    }
+
+    try {
+      await this.ensureAuthenticated();
+      return { connected: true, message: 'FyStack connected successfully' };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      return { connected: false, message: `FyStack connection failed: ${errorMsg}` };
+    }
+  }
+
   private async ensureAuthenticated(): Promise<void> {
     if (this.sessionCookie) {
       return; // Already authenticated

@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import * as argon2 from 'argon2';
+// import * as argon2 from 'argon2'; // Not used currently
 
 // Validation schemas
 const updateProfileSchema = z.object({
@@ -27,13 +27,14 @@ const userRoutes: FastifyPluginAsync = async (fastify) => {
     });
   }
 
-  async function validatePassword(user: any, password: string): Promise<boolean> {
-    try {
-      return await argon2.verify(user.passwordHash, password);
-    } catch (error) {
-      return false;
-    }
-  }
+  // Commented out - not used currently
+  // async function validatePassword(user: any, password: string): Promise<boolean> {
+  //   try {
+  //     return await argon2.verify(user.passwordHash, password);
+  //   } catch (error) {
+  //     return false;
+  //   }
+  // }
 
   function toUserProfile(user: any): UserProfile {
     return {

@@ -9,7 +9,7 @@ const registerSchema = z.object({
   username: z.string().min(3).max(50),
   email: z.string().email(),
   password: z.string().min(6),
-  role: z.enum(['WORKER', 'CLIENT']).optional().default('CLIENT')
+  role: z.enum(['worker', 'client', 'WORKER', 'CLIENT']).optional().default('client').transform(val => val.toLowerCase() as 'worker' | 'client')
 });
 
 const loginSchema = z.object({
@@ -88,7 +88,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
     }
   }, async (request, reply) => {
     try {
-      const { username, email, password } = registerSchema.parse(request.body);
+      const { username, email, password, role } = registerSchema.parse(request.body);
 
       // Check if user already exists
       const existingUser = await fastify.prisma.user.findFirst({
@@ -117,7 +117,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
           username,
           email,
           passwordHash: hashedPassword,
-          role: registerSchema.parse(request.body).role as any
+          role: role as any
         },
         select: {
           id: true,

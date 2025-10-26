@@ -1,5 +1,9 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import * as dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 const prisma = new PrismaClient();
 
@@ -159,7 +163,7 @@ async function main() {
     },
   });
 
-  const walletClient2 = await prisma.wallet.create({
+  void await prisma.wallet.create({
     data: {
       userId: client2.id,
       fystackWalletId: 'fystack_wallet_client2_001',
@@ -173,7 +177,7 @@ async function main() {
     },
   });
 
-  const walletClient3 = await prisma.wallet.create({
+  void await prisma.wallet.create({
     data: {
       userId: client3.id,
       fystackWalletId: 'fystack_wallet_client3_001',
@@ -201,7 +205,7 @@ async function main() {
     },
   });
 
-  const walletWorker2 = await prisma.wallet.create({
+  void await prisma.wallet.create({
     data: {
       userId: worker2.id,
       fystackWalletId: 'fystack_wallet_worker2_001',
@@ -215,7 +219,7 @@ async function main() {
     },
   });
 
-  const walletWorker3 = await prisma.wallet.create({
+  void await prisma.wallet.create({
     data: {
       userId: worker3.id,
       fystackWalletId: 'fystack_wallet_worker3_001',
@@ -229,7 +233,7 @@ async function main() {
     },
   });
 
-  const walletWorker4 = await prisma.wallet.create({
+  void await prisma.wallet.create({
     data: {
       userId: worker4.id,
       fystackWalletId: 'fystack_wallet_worker4_001',
@@ -405,7 +409,7 @@ async function main() {
   console.log('📋 Creating tasks...');
   
   // Draft task (not yet published)
-  const taskDraft = await prisma.task.create({
+  void await prisma.task.create({
     data: {
       clientId: client1.id,
       title: 'Image Classification - Product Photos',
@@ -437,7 +441,7 @@ async function main() {
     },
   });
 
-  const taskOpen2 = await prisma.task.create({
+  void await prisma.task.create({
     data: {
       clientId: client2.id,
       title: 'Survey Response Collection',
