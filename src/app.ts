@@ -153,20 +153,7 @@ export async function buildApp() {
     transformSpecificationClone: true,
   });
 
-  // Root endpoint
-  fastify.get('/', async () => {
-    return {
-      name: 'PayTask Worker API',
-      version: '1.0.0',
-      description: 'Task Discovery & Acceptance API',
-      documentation: '/api-docs',
-      health: '/health',
-      endpoints: {
-        tasks: '/api/tasks',
-      },
-      environment: config.nodeEnv,
-    };
-  });
+
 
   // Health check
   fastify.get(
