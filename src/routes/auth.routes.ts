@@ -117,7 +117,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
           username,
           email,
           passwordHash: hashedPassword,
-          role: registerSchema.parse(request.body).role as any
+          role: registerSchema.parse(request.body).role.toLowerCase() as 'client' | 'worker'
         },
         select: {
           id: true,
@@ -227,16 +227,44 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         200: {
           type: 'object',
           properties: {
+            success: { type: 'boolean' },
             message: { type: 'string' },
-            accessToken: { type: 'string' },
-            refreshToken: { type: 'string' },
-            user: {
+            data: {
               type: 'object',
               properties: {
-                id: { type: 'string' },
-                username: { type: 'string' },
-                email: { type: 'string' },
-                role: { type: 'string' }
+                accessToken: { type: 'string' },
+                tokenType: { type: 'string' },
+                expiresIn: { type: 'number' },
+                expiresAt: { type: 'string' },
+                user: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    email: { type: 'string' },
+                    username: { type: 'string' },
+                    role: { type: 'string' },
+                    isActive: { type: 'boolean' },
+                    createdAt: { type: 'string' }
+                  }
+                },
+                wallet: {
+                  type: ['object', 'null'],
+                  properties: {
+                    id: { type: 'string' },
+                    name: { type: 'string' },
+                    addresses: { type: 'object', additionalProperties: true },
+                    isActive: { type: 'boolean' },
+                    createdAt: { type: 'string' }
+                  }
+                },
+                session: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    createdAt: { type: 'string' },
+                    expiresAt: { type: 'string' }
+                  }
+                }
               }
             }
           }
