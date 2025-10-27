@@ -21,16 +21,11 @@ export async function ratingRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/',
     {
+      preHandler: [fastify.authenticate],
       schema: {
         description: 'Create a new rating',
         tags: ['Ratings'],
-        headers: {
-          type: 'object',
-          properties: {
-            'x-user-id': { type: 'string', format: 'uuid' },
-          },
-          required: ['x-user-id'],
-        },
+        security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['toUserId', 'taskId', 'score'],
@@ -43,21 +38,16 @@ export async function ratingRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (
-      request: FastifyRequest<{ Body: CreateRatingBody; Headers: { 'x-user-id': string } }>,
-      reply: FastifyReply
-    ) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const fromUserId = request.headers['x-user-id'];
-        if (!fromUserId) {
-          return reply.code(401).send({ error: 'UNAUTHORIZED' });
-        }
+        const fromUserId = request.user.userId;
 
+        const body = request.body as CreateRatingBody;
         const rating = await ratingService.createRating(fromUserId, {
-          toUserId: request.body.toUserId,
-          taskId: request.body.taskId,
-          score: request.body.score,
-          comment: request.body.comment || null,
+          toUserId: body.toUserId,
+          taskId: body.taskId,
+          score: body.score,
+          comment: body.comment || null,
         });
         return reply.code(201).send(rating);
       } catch (error: any) {

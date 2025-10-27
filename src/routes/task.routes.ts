@@ -31,16 +31,11 @@ export async function taskRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/',
     {
+      preHandler: [fastify.authenticate],
       schema: {
         description: 'Create a new task (draft status)',
         tags: ['Tasks'],
-        headers: {
-          type: 'object',
-          properties: {
-            'x-user-id': { type: 'string', format: 'uuid' },
-          },
-          required: ['x-user-id'],
-        },
+        security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['title', 'reward', 'qty'],
@@ -55,23 +50,18 @@ export async function taskRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (
-      request: FastifyRequest<{ Body: CreateTaskBody; Headers: { 'x-user-id': string } }>,
-      reply: FastifyReply
-    ) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const userId = request.headers['x-user-id'];
-        if (!userId) {
-          return reply.code(401).send({ error: 'UNAUTHORIZED' });
-        }
+        const userId = request.user.userId;
 
+        const body = request.body as CreateTaskBody;
         const task = await taskService.createTask(userId, {
-          title: request.body.title,
-          description: request.body.description,
-          category: request.body.category,
-          reward: request.body.reward,
-          qty: request.body.qty,
-          deadline: request.body.deadline ? new Date(request.body.deadline) : undefined,
+          title: body.title,
+          description: body.description,
+          category: body.category,
+          reward: body.reward,
+          qty: body.qty,
+          deadline: body.deadline ? new Date(body.deadline) : undefined,
         });
 
         return reply.code(201).send({
@@ -95,16 +85,11 @@ export async function taskRoutes(fastify: FastifyInstance) {
   fastify.put(
     '/updateTaskDraft/:taskId',
     {
+      preHandler: [fastify.authenticate],
       schema: {
         description: 'Update a draft task',
         tags: ['Tasks'],
-        headers: {
-          type: 'object',
-          properties: {
-            'x-user-id': { type: 'string', format: 'uuid' },
-          },
-          required: ['x-user-id'],
-        },
+        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -125,27 +110,19 @@ export async function taskRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (
-      request: FastifyRequest<{
-        Body: UpdateTaskBody;
-        Params: { taskId: string };
-        Headers: { 'x-user-id': string };
-      }>,
-      reply: FastifyReply
-    ) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const userId = request.headers['x-user-id'];
-        if (!userId) {
-          return reply.code(401).send({ error: 'UNAUTHORIZED' });
-        }
+        const userId = request.user.userId;
 
-        const task = await taskService.updateTask(userId, request.params.taskId, {
-          title: request.body.title,
-          description: request.body.description,
-          category: request.body.category,
-          reward: request.body.reward,
-          qty: request.body.qty,
-          deadline: request.body.deadline ? new Date(request.body.deadline) : undefined,
+        const params = request.params as { taskId: string };
+        const body = request.body as UpdateTaskBody;
+        const task = await taskService.updateTask(userId, params.taskId, {
+          title: body.title,
+          description: body.description,
+          category: body.category,
+          reward: body.reward,
+          qty: body.qty,
+          deadline: body.deadline ? new Date(body.deadline) : undefined,
         });
 
         return reply.code(200).send({
@@ -179,16 +156,11 @@ export async function taskRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/:taskId/publish',
     {
+      preHandler: [fastify.authenticate],
       schema: {
         description: 'Publish task with escrow payment',
         tags: ['Tasks'],
-        headers: {
-          type: 'object',
-          properties: {
-            'x-user-id': { type: 'string', format: 'uuid' },
-          },
-          required: ['x-user-id'],
-        },
+        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -198,20 +170,12 @@ export async function taskRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (
-      request: FastifyRequest<{
-        Params: { taskId: string };
-        Headers: { 'x-user-id': string };
-      }>,
-      reply: FastifyReply
-    ) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const userId = request.headers['x-user-id'];
-        if (!userId) {
-          return reply.code(401).send({ error: 'UNAUTHORIZED' });
-        }
+        const userId = request.user.userId;
 
-        const { taskId } = request.params;
+        const params = request.params as { taskId: string };
+        const { taskId } = params;
 
         // 1. Get task details
         const task = await taskService.getTaskById(taskId);
@@ -334,16 +298,11 @@ export async function taskRoutes(fastify: FastifyInstance) {
   fastify.delete(
     '/:taskId',
     {
+      preHandler: [fastify.authenticate],
       schema: {
         description: 'Delete a draft task',
         tags: ['Tasks'],
-        headers: {
-          type: 'object',
-          properties: {
-            'x-user-id': { type: 'string', format: 'uuid' },
-          },
-          required: ['x-user-id'],
-        },
+        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -353,20 +312,12 @@ export async function taskRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (
-      request: FastifyRequest<{
-        Params: { taskId: string };
-        Headers: { 'x-user-id': string };
-      }>,
-      reply: FastifyReply
-    ) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const userId = request.headers['x-user-id'];
-        if (!userId) {
-          return reply.code(401).send({ error: 'UNAUTHORIZED' });
-        }
+        const userId = request.user.userId;
 
-        const result = await taskService.deleteTask(userId, request.params.taskId);
+        const params = request.params as { taskId: string };
+        const result = await taskService.deleteTask(userId, params.taskId);
 
         return reply.code(200).send({
           success: true,

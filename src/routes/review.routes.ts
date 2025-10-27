@@ -24,16 +24,11 @@ export async function reviewRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/accept',
     {
+      preHandler: [fastify.authenticate],
       schema: {
         description: 'Accept submission and transfer payment to worker',
         tags: ['Reviews'],
-        headers: {
-          type: 'object',
-          properties: {
-            'x-user-id': { type: 'string', format: 'uuid' },
-          },
-          required: ['x-user-id'],
-        },
+        security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['submissionId'],
@@ -44,19 +39,14 @@ export async function reviewRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (
-      request: FastifyRequest<{ Body: AcceptSubmissionBody; Headers: { 'x-user-id': string } }>,
-      reply: FastifyReply
-    ) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const userId = request.headers['x-user-id'];
-        if (!userId) {
-          return reply.code(401).send({ error: 'UNAUTHORIZED' });
-        }
+        const userId = request.user.userId;
 
+        const body = request.body as AcceptSubmissionBody;
         const result = await reviewService.acceptSubmission(userId, {
-          submissionId: request.body.submissionId,
-          feedback: request.body.feedback,
+          submissionId: body.submissionId,
+          feedback: body.feedback,
         });
         return reply.code(201).send(result);
       } catch (error: any) {
@@ -86,16 +76,11 @@ export async function reviewRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/reject',
     {
+      preHandler: [fastify.authenticate],
       schema: {
         description: 'Reject submission - awaiting support decision',
         tags: ['Reviews'],
-        headers: {
-          type: 'object',
-          properties: {
-            'x-user-id': { type: 'string', format: 'uuid' },
-          },
-          required: ['x-user-id'],
-        },
+        security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['submissionId', 'feedback'],
@@ -106,19 +91,14 @@ export async function reviewRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (
-      request: FastifyRequest<{ Body: RejectSubmissionBody; Headers: { 'x-user-id': string } }>,
-      reply: FastifyReply
-    ) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const userId = request.headers['x-user-id'];
-        if (!userId) {
-          return reply.code(401).send({ error: 'UNAUTHORIZED' });
-        }
+        const userId = request.user.userId;
 
+        const body = request.body as RejectSubmissionBody;
         const result = await reviewService.rejectSubmission(userId, {
-          submissionId: request.body.submissionId,
-          feedback: request.body.feedback,
+          submissionId: body.submissionId,
+          feedback: body.feedback,
         });
         return reply.code(201).send(result);
       } catch (error: any) {
@@ -144,16 +124,11 @@ export async function reviewRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/refund',
     {
+      preHandler: [fastify.authenticate],
       schema: {
         description: 'Refund task to client - Support/Admin only',
         tags: ['Reviews'],
-        headers: {
-          type: 'object',
-          properties: {
-            'x-user-id': { type: 'string', format: 'uuid' },
-          },
-          required: ['x-user-id'],
-        },
+        security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['taskId', 'reason'],
@@ -164,22 +139,17 @@ export async function reviewRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (
-      request: FastifyRequest<{ Body: RefundTaskBody; Headers: { 'x-user-id': string } }>,
-      reply: FastifyReply
-    ) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const userId = request.headers['x-user-id'];
-        if (!userId) {
-          return reply.code(401).send({ error: 'UNAUTHORIZED' });
-        }
+        const userId = request.user.userId;
 
         // TODO: Add admin/support role validation here
         // For now, any authenticated user can refund (should be restricted to support/admin)
 
+        const body = request.body as RefundTaskBody;
         const result = await reviewService.refundTask(
-          request.body.taskId,
-          request.body.reason
+          body.taskId,
+          body.reason
         );
         return reply.code(200).send(result);
       } catch (error: any) {
