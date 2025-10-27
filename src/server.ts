@@ -22,16 +22,7 @@ async function start() {
     console.log('🔌 Connecting to Redis...');
     await redis.ping();
     console.log('✅ Redis connected');
-
-    // Test FyStack connection
-    console.log('🔌 Connecting to FyStack...');
-    const fystackStatus = await fystackService.checkConnection();
-    if (fystackStatus.connected) {
-      console.log('✅ FyStack connected');
-    } else {
-      console.log(`⚠️  FyStack: ${fystackStatus.message}`);
-    }
-
+    
     // Start the server
     await fastify.listen({
       port: config.port,

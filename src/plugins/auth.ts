@@ -1,11 +1,10 @@
-import type { FastifyPluginAsync } from 'fastify';
+import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import fp from 'fastify-plugin';
 import { sessionService } from '../services/session.service';
 
-// Declare module augmentation for Fastify
 declare module 'fastify' {
   interface FastifyInstance {
-    authenticate: (request: any, reply: any) => Promise<void>;
+    authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 
   interface FastifyRequest {
@@ -49,4 +48,5 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
   });
 };
 
+export { authPlugin };
 export default fp(authPlugin);

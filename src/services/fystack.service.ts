@@ -102,34 +102,10 @@ export class FystackService {
 
     await this.ensureAuthenticated();
   }
-
-  /**
-   * Check if FyStack service is available and connected
-   */
-  async checkConnection(): Promise<{ connected: boolean; message: string }> {
-    if (!this.axiosInstance) {
-      return { connected: false, message: 'FyStack service is disabled (no API URL configured)' };
-    }
-
-    const email = process.env.FYSTACK_EMAIL;
-    const password = process.env.FYSTACK_PASSWORD;
-    const workspaceId = process.env.FYSTACK_WORKSPACE_ID;
-
-    if (!email || !password || !workspaceId || email === 'YOUR_FYSTACK_EMAIL_HERE') {
-      return { connected: false, message: 'FyStack credentials not configured' };
-    }
-
-    try {
-      await this.ensureAuthenticated();
-      return { connected: true, message: 'FyStack connected successfully' };
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      return { connected: false, message: `FyStack connection failed: ${errorMsg}` };
-    }
-  }
-
+  
   private async ensureAuthenticated(): Promise<void> {
     if (this.sessionCookie) {
+      console.log('   → Already authenticated (using cached session)');
       return; // Already authenticated
     }
 
@@ -137,26 +113,63 @@ export class FystackService {
     const password = process.env.FYSTACK_PASSWORD;
     const workspaceId = process.env.FYSTACK_WORKSPACE_ID;
 
+    console.log('   → Starting authentication process...');
+
     // Retry mechanism to handle service startup race conditions
     for (let attempt = 1; attempt <= 5; attempt++) {
       try {
+        console.log(`   → Attempt ${attempt}/5: Signing in...`);
+        
         if (!this.axiosInstance) {
           throw new Error('Axios instance is not initialized');
         }
 
+        // Step 1: Sign in
+        console.log(`   → Calling POST /authentication/sign-in with email: ${email}`);
         const signInResponse = await this.axiosInstance.post('/authentication/sign-in', { email, password });
+        console.log(`   → Sign-in response status: ${signInResponse.status}`);
+        
         let cookie = this.extractSessionCookie(signInResponse);
+        console.log(`   → Extracted cookie: ${cookie ? cookie.substring(0, 50) + '...' : 'NONE'}`);
 
-        const sessionResponse = await this.axiosInstance.post('/authentication/start-session', { workspace_id: workspaceId }, { headers: { Cookie: cookie } });
+        // Step 2: Start session
+        console.log(`   → Calling POST /authentication/start-session with workspace: ${workspaceId}`);
+        const sessionResponse = await this.axiosInstance.post(
+          '/authentication/start-session', 
+          { workspace_id: workspaceId }, 
+          { headers: { Cookie: cookie } }
+        );
+        console.log(`   → Start-session response status: ${sessionResponse.status}`);
+        
         this.sessionCookie = this.extractSessionCookie(sessionResponse) || cookie;
-
+        console.log(`   ✅ Authentication successful on attempt ${attempt}`);
+        
         return; // Exit on success
-      } catch (error) {
+      } catch (error: any) {
+        console.log(`   ❌ Attempt ${attempt} failed:`);
+        console.log(`      Error type: ${error.constructor.name}`);
+        console.log(`      Error message: ${error.message}`);
+        
+        if (error.response) {
+          console.log(`      Response status: ${error.response.status}`);
+          console.log(`      Response data:`, JSON.stringify(error.response.data, null, 2));
+        } else if (error.request) {
+          console.log(`      No response received - network issue`);
+          console.log(`      Request config:`, {
+            url: error.config?.url,
+            method: error.config?.method,
+            baseURL: error.config?.baseURL,
+          });
+        } else {
+          console.log(`      Error details:`, error);
+        }
+
         if (attempt === 5) {
           this.logger.error('Failed to authenticate Fystack service account after 5 attempts');
           this.sessionCookie = '';
           throw new Error('Failed to authenticate Fystack service account');
         } else {
+          console.log(`   → Waiting 5 seconds before retry...`);
           await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds before retrying
         }
       }
