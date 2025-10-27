@@ -11,10 +11,6 @@ const createWalletSchema = z.object({
   isActive: z.boolean().default(true)
 });
 
-const updateWalletNameSchema = z.object({
-  name: z.string().min(1).max(100)
-});
-
 const withdrawSchema = z.object({
   recipientAddress: z.string().min(1),
   amount: z.number().positive(),

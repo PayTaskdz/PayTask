@@ -141,8 +141,6 @@ export async function reviewRoutes(fastify: FastifyInstance) {
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const userId = request.user.userId;
-
         // TODO: Add admin/support role validation here
         // For now, any authenticated user can refund (should be restricted to support/admin)
 
