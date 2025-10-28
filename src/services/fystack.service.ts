@@ -9,6 +9,7 @@ export const ASSET_CONFIG = {
     decimals: 9,
   },
   USDC_DEV: {
+    id: 'af836c8e-3199-426d-bb00-17ae3a5c2f5a',
     address: 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
     symbol: 'USDC-DEV',
     name: 'USD Coin Dev',
@@ -105,7 +106,7 @@ export class FystackService {
   
   private async ensureAuthenticated(): Promise<void> {
     if (this.sessionCookie) {
-      console.log('   → Already authenticated (using cached session)');
+
       return; // Already authenticated
     }
 
@@ -113,63 +114,34 @@ export class FystackService {
     const password = process.env.FYSTACK_PASSWORD;
     const workspaceId = process.env.FYSTACK_WORKSPACE_ID;
 
-    console.log('   → Starting authentication process...');
-
     // Retry mechanism to handle service startup race conditions
     for (let attempt = 1; attempt <= 5; attempt++) {
       try {
-        console.log(`   → Attempt ${attempt}/5: Signing in...`);
-        
         if (!this.axiosInstance) {
           throw new Error('Axios instance is not initialized');
         }
 
         // Step 1: Sign in
-        console.log(`   → Calling POST /authentication/sign-in with email: ${email}`);
         const signInResponse = await this.axiosInstance.post('/authentication/sign-in', { email, password });
-        console.log(`   → Sign-in response status: ${signInResponse.status}`);
-        
+
         let cookie = this.extractSessionCookie(signInResponse);
-        console.log(`   → Extracted cookie: ${cookie ? cookie.substring(0, 50) + '...' : 'NONE'}`);
 
         // Step 2: Start session
-        console.log(`   → Calling POST /authentication/start-session with workspace: ${workspaceId}`);
         const sessionResponse = await this.axiosInstance.post(
-          '/authentication/start-session', 
-          { workspace_id: workspaceId }, 
+          '/authentication/start-session',
+          { workspace_id: workspaceId },
           { headers: { Cookie: cookie } }
         );
-        console.log(`   → Start-session response status: ${sessionResponse.status}`);
-        
+
         this.sessionCookie = this.extractSessionCookie(sessionResponse) || cookie;
-        console.log(`   ✅ Authentication successful on attempt ${attempt}`);
         
         return; // Exit on success
       } catch (error: any) {
-        console.log(`   ❌ Attempt ${attempt} failed:`);
-        console.log(`      Error type: ${error.constructor.name}`);
-        console.log(`      Error message: ${error.message}`);
-        
-        if (error.response) {
-          console.log(`      Response status: ${error.response.status}`);
-          console.log(`      Response data:`, JSON.stringify(error.response.data, null, 2));
-        } else if (error.request) {
-          console.log(`      No response received - network issue`);
-          console.log(`      Request config:`, {
-            url: error.config?.url,
-            method: error.config?.method,
-            baseURL: error.config?.baseURL,
-          });
-        } else {
-          console.log(`      Error details:`, error);
-        }
-
         if (attempt === 5) {
           this.logger.error('Failed to authenticate Fystack service account after 5 attempts');
           this.sessionCookie = '';
           throw new Error('Failed to authenticate Fystack service account');
         } else {
-          console.log(`   → Waiting 5 seconds before retry...`);
           await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds before retrying
         }
       }
@@ -308,7 +280,7 @@ export class FystackService {
     try {
       const payload = {
         recipient_address: withdrawalRequest.recipientAddress,
-        amount: withdrawalRequest.amount.toString(),
+        amount: Number(withdrawalRequest.amount),
         asset_id: withdrawalRequest.assetId,
         notes: "",
       };
@@ -331,8 +303,13 @@ export class FystackService {
         hash: withdrawalData.transaction?.hash,
       };
     } catch (error) {
-      this.logger.error(`Failed to create withdrawal for wallet ${walletId}:`, error);
-      throw new Error('Failed to create withdrawal');
+      const axiosError = error as any;
+      if (axiosError.response) {
+        this.logger.error(`Failed to create withdrawal for wallet ${walletId}. Status: ${axiosError.response.status}`, axiosError.response.data);
+      } else {
+        this.logger.error(`Failed to create withdrawal for wallet ${walletId}:`, error);
+      }
+      throw new Error(`Failed to create withdrawal for wallet ${walletId}: ${axiosError.message}`);
     }
   }
 

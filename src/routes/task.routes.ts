@@ -1,9 +1,11 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { taskService } from '../services/task.service';
-import { userService } from '../services/user.service';
-import { solanaService } from '../services/solanaService';
+
+import { SolanaService } from '../services/solanaService';
 import { config } from '../config/env';
 import { TaskDiscoveryQuerySchema, TaskDiscoveryResponse } from '../types/task.types';
+import { WalletService } from '../services/wallet.service';
+import { ASSET_CONFIG } from '../services/fystack.service';
 
 interface CreateTaskBody {
   title: string;
@@ -24,6 +26,8 @@ interface UpdateTaskBody {
 }
 
 export async function taskRoutes(fastify: FastifyInstance) {
+  const walletService = new WalletService(fastify);
+  const solanaService = new SolanaService();
   /**
    * POST /api/tasks
    * Create a new task (draft)
@@ -168,6 +172,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
           },
           required: ['taskId'],
         },
+
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -203,16 +208,17 @@ export async function taskRoutes(fastify: FastifyInstance) {
           });
         }
 
-        // 4. Get client wallet information
-        const walletAddress = await userService.getUserSolanaAddress(task.clientId);
-        console.log(`Client wallet address: ${walletAddress}`);
+        // 4. Get client's default wallet
+        const clientWallet = await walletService.findWalletByUserId(userId);
+
+        // Check for Solana address within the wallet
+        const walletAddress = (clientWallet.addresses as any)?.solana;
         if (!walletAddress) {
           return reply.code(400).send({
             success: false,
-            error: 'User wallet address not found',
+            error: 'User wallet or Solana address not found',
           });
         }
-
         // 5. Calculate total amount (budget includes reward + fee)
         const totalAmount = parseFloat(task.budget || '0');
         if (totalAmount <= 0) {
@@ -223,9 +229,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
         }
 
         // 6. Check user USDC balance
-        console.log(`Checking USDC balance for wallet ${walletAddress}`);
         const userBalance = await solanaService.getUsdcBalance(walletAddress);
-        console.log(`Balance: ${userBalance} USDC, Required: ${totalAmount} USDC`);
 
         if (userBalance < totalAmount) {
           return reply.code(400).send({
@@ -240,18 +244,38 @@ export async function taskRoutes(fastify: FastifyInstance) {
           });
         }
 
-        // 7. Transfer USDC from client wallet to settlement wallet
-        console.log(`Transferring ${totalAmount} USDC from client ${walletAddress} to settlement wallet ${config.solana.settlementWalletPublicKey}`);
-        
-        // TODO: Implement actual transfer from client to settlement
-        // For now, this is mocked - in production, client needs to sign transaction
-        console.log(`[MOCK] Transfer of ${totalAmount} USDC to settlement wallet`);
-        const mockTxHash = `mock_tx_${Date.now()}`;
 
-        // 8. Publish task (update status to 'open')
+
+        // 8. Validate that settlement wallet is configured
+        if (!config.solana.settlementWalletPublicKey) {
+          return reply.code(500).send({
+            success: false,
+            error: 'Settlement wallet is not configured on the server',
+          });
+        }
+
+        // 9. Execute withdrawal from client wallet to settlement wallet
+
+        const withdrawalRequest = {
+          recipientAddress: config.solana.settlementWalletPublicKey,
+          amount: totalAmount,
+          assetId: ASSET_CONFIG.USDC_DEV.id, // Using USDC-Dev asset ID
+        };
+
+        const withdrawalResult = await walletService.processWithdrawal(clientWallet, withdrawalRequest);
+
+        if (!withdrawalResult.success || !withdrawalResult.transactionId) {
+          return reply.code(400).send({
+            success: false,
+            error: 'Failed to escrow funds',
+            details: withdrawalResult.message,
+          });
+        }
+
+        // 9. Publish task (update status to 'open')
         const publishedTask = await taskService.publishTask(userId, {
           taskId: task.id,
-          txHash: mockTxHash,
+          txHash: withdrawalResult.transactionId,
         });
 
         // 9. Return success response
@@ -265,7 +289,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
             amount: totalAmount,
             reward: parseFloat(task.reward),
             fee: totalAmount - parseFloat(task.reward) * task.qty,
-            txHash: mockTxHash,
+            txHash: withdrawalResult.transactionId,
             note: 'Funds escrowed in settlement wallet',
           },
         });
@@ -538,14 +562,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest<{ Params: { taskId: string } }>, reply: FastifyReply) => {
       try {
         const { taskId } = request.params;
-        fastify.log.info(`Fetching task with ID: ${taskId}`);
-        
         const task = await taskService.getTaskById(taskId);
-        
-        fastify.log.info(`Task found: ${task ? 'YES' : 'NO'}`);
-        if (task) {
-          fastify.log.info(`Task data: ${JSON.stringify(task).substring(0, 200)}...`);
-        }
 
         if (!task) {
           return reply.code(404).send({
@@ -562,7 +579,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
           data: task,
         };
 
-        fastify.log.info(`Sending response with data length: ${JSON.stringify(response).length}`);
+
         
         return reply.code(200).send(response);
       } catch (error: any) {
