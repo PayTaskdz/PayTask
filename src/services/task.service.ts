@@ -195,7 +195,7 @@ export class TaskService {
    * @param status - The new status to set
    * Simply change status
    */
-  async updateTaskStatus(taskId: string, status: 'draft' | 'open' | 'active' | 'completed' | 'cancelled' | 'refund') {
+  async updateTaskStatus(taskId: string, status: 'draft' | 'open' | 'active' | 'completed' | 'cancelled' | 'refund' | 'paid') {
     console.log('🔵 START updateTaskStatus:', { taskId, status });
 
     try {

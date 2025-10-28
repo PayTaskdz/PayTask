@@ -16,6 +16,7 @@ import { authRoutes } from './routes/auth.routes';
 import { userRoutes } from './routes/users.routes';
 import { walletRoutes } from './routes/wallet.routes';
 import notificationRoutes from './routes/notification.routes';
+import { paymentRoutes } from './routes/payment.routes';
 import prisma from './config/prisma';
 import authPlugin from './plugins/auth';
 
@@ -130,6 +131,10 @@ export async function buildApp() {
         {
           name: 'Health',
           description: 'Health check and system status endpoints',
+        },
+        {
+          name: 'Payments',
+          description: 'Payment processing and payout endpoints',
         },
       ],
       components: {
@@ -250,6 +255,13 @@ export async function buildApp() {
       await instance.register(notificationRoutes);
     },
     { prefix: '/api' }
+  );
+
+  await fastify.register(
+    async (instance) => {
+      await instance.register(paymentRoutes);
+    },
+    { prefix: '/api/payments' }
   );
 
   await fastify.register(
