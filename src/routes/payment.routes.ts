@@ -43,7 +43,7 @@ export async function paymentRoutes(fastify: FastifyInstance) {
         }
 
         // Check if task is verified
-        if (task.status !== 'completed') { // Assuming 'completed' is the status before payout
+        if (task.status !== 'active') { // Assuming 'completed' is the status before payout
           return reply.code(400).send({
             success: false,
             error: 'Task must be in completed status before payout',
