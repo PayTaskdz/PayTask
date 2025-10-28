@@ -15,6 +15,7 @@ import { reviewRoutes } from './routes/review.routes';
 import { authRoutes } from './routes/auth.routes';
 import { userRoutes } from './routes/users.routes';
 import { walletRoutes } from './routes/wallet.routes';
+import notificationRoutes from './routes/notification.routes';
 import prisma from './config/prisma';
 import authPlugin from './plugins/auth';
 
@@ -117,6 +118,10 @@ export async function buildApp() {
         {
           name: 'Wallet',
           description: 'Wallet and transaction management endpoints',
+        },
+        {
+          name: 'Notifications',
+          description: 'User notification management endpoints',
         },
         {
           name: 'Error Logs',
@@ -238,6 +243,13 @@ export async function buildApp() {
       await instance.register(walletRoutes);
     },
     { prefix: '/api/wallet' }
+  );
+
+  await fastify.register(
+    async (instance) => {
+      await instance.register(notificationRoutes);
+    },
+    { prefix: '/api' }
   );
 
   await fastify.register(

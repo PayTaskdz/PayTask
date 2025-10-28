@@ -213,11 +213,16 @@ export class FystackService {
       const addresses: any = {};
 
       try {
-        const solanaAddressResult = await this.getDepositAddressWithRetry(newWalletId, DEFAULT_SOLANA_ASSET_ID);
+        // Increase retry attempts and delay for Solana address creation
+        // FyStack may need more time to generate the address after wallet creation
+        const solanaAddressResult = await this.getDepositAddressWithRetry(newWalletId, DEFAULT_SOLANA_ASSET_ID, 10, 3000);
         addresses.solana = solanaAddressResult.address;
+        this.logger.info(`Successfully retrieved Solana address for wallet ${newWalletId}: ${solanaAddressResult.address}`);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.warn(`Failed to get Solana address for wallet ${newWalletId}:`, errorMsg);
+        this.logger.error(`Failed to get Solana address for wallet ${newWalletId} after 10 retries:`, errorMsg);
+        // Throw error to prevent wallet creation without Solana address
+        throw new Error(`Unable to retrieve Solana address for wallet ${newWalletId}. Please try again later.`);
       }
 
       return {
@@ -464,6 +469,22 @@ export class FystackService {
   private extractSessionCookie(response: AxiosResponse): string {
     const setCookieHeader = response.headers['set-cookie'];
     return setCookieHeader ? setCookieHeader.join('; ') : '';
+  }
+
+  /**
+   * Sync Solana address for an existing wallet (useful for wallets created without address)
+   * This can be called as a background job or manually
+   */
+  async syncSolanaAddressForWallet(walletId: string): Promise<string | null> {
+    try {
+      const solanaAddressResult = await this.getDepositAddressWithRetry(walletId, DEFAULT_SOLANA_ASSET_ID, 10, 3000);
+      this.logger.info(`Successfully synced Solana address for wallet ${walletId}: ${solanaAddressResult.address}`);
+      return solanaAddressResult.address;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to sync Solana address for wallet ${walletId}:`, errorMsg);
+      return null;
+    }
   }
 }
 

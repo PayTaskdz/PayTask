@@ -1,5 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
-import { z } from 'zod';
+import { any, z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { sessionService } from '../services/session.service';
 import { fystackService } from '../services/fystack.service';
@@ -135,6 +135,18 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       let wallet = null;
       try {
         const fystackResult = await fystackService.createWalletForUser(user.username);
+        
+        fastify.log.info({
+          walletId: fystackResult.walletId,
+          addresses: fystackResult.addresses,
+          hasSolana: !!fystackResult.addresses?.solana,
+          addressesKeys: Object.keys(fystackResult.addresses || {})
+        }, 'FyStack wallet created');
+
+        // Verify Solana address exists before saving
+        if (!fystackResult.addresses?.solana) {
+          throw new Error('Solana address not available after wallet creation. Please try registering again.');
+        }
 
         wallet = await fastify.prisma.wallet.create({
           data: {
@@ -146,10 +158,25 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
             isActive: true,
           },
         });
-        fastify.log.info(`Wallet created successfully for user: ${user.email}`);
+        
+        fastify.log.info({
+          walletId: wallet.id,
+          userId: user.id,
+          addresses: wallet.addresses,
+          solanaAddress: (wallet.addresses as any)?.solana,
+          savedAddressesKeys: Object.keys((wallet.addresses as any) || {})
+        }, 'Wallet saved to database with Solana address');
       } catch (walletError: any) {
         fastify.log.error({ error: walletError }, `Failed to create wallet for user ${user.email}`);
-        // Continue with registration even if wallet creation fails
+        
+        // If wallet creation fails, delete the user to maintain data consistency
+        await fastify.prisma.user.delete({ where: { id: user.id } });
+        
+        return reply.code(500).send({
+          success: false,
+          error: 'Wallet creation failed',
+          message: walletError.message || 'Failed to create wallet. Please try again later.'
+        });
       }
 
       // Create session for the new user

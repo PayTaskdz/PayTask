@@ -446,8 +446,8 @@ export class TaskService {
     // Build where clause
     const where: Prisma.TaskWhereInput = {};
 
-    // Filter by status (if not specified, don't filter by status)
-    if (status) {
+    // Filter by status (if status is 'all' or not specified, don't filter by status)
+    if (status && status !== 'all') {
       where.status = status as any;
     }
 
@@ -512,6 +512,7 @@ export class TaskService {
         category: true,
         reward: true,
         qty: true,
+        budget: true,
         deadline: true,
         status: true,
         createdAt: true,
@@ -537,6 +538,7 @@ export class TaskService {
       category: task.category,
       reward: task.reward.toString(),
       qty: task.qty,
+      budget: task.budget?.toString() || null,
       deadline: task.deadline?.toISOString() || null,
       status: task.status,
       createdAt: task.createdAt.toISOString(),

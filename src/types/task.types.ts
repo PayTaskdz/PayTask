@@ -23,6 +23,7 @@ export interface TaskDiscoveryItem {
   category: string | null;
   reward: string;
   qty: number;
+  budget: string | null; // Total cost
   deadline: string | null;
   status: string;
   createdAt: string;

@@ -204,15 +204,9 @@ export async function taskRoutes(fastify: FastifyInstance) {
         }
 
         // 4. Get client wallet information
-        const user = await userService.getUserById(task.clientId);
-        if (!user) {
-          return reply.code(404).send({
-            success: false,
-            error: 'User not found',
-          });
-        }
-
-        if (!user.walletAddress) {
+        const walletAddress = await userService.getUserSolanaAddress(task.clientId);
+        console.log(`Client wallet address: ${walletAddress}`);
+        if (!walletAddress) {
           return reply.code(400).send({
             success: false,
             error: 'User wallet address not found',
@@ -229,8 +223,8 @@ export async function taskRoutes(fastify: FastifyInstance) {
         }
 
         // 6. Check user USDC balance
-        console.log(`Checking USDC balance for wallet ${user.walletAddress}`);
-        const userBalance = await solanaService.getUsdcBalance(user.walletAddress);
+        console.log(`Checking USDC balance for wallet ${walletAddress}`);
+        const userBalance = await solanaService.getUsdcBalance(walletAddress);
         console.log(`Balance: ${userBalance} USDC, Required: ${totalAmount} USDC`);
 
         if (userBalance < totalAmount) {
@@ -238,7 +232,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
             success: false,
             error: 'Insufficient balance',
             details: {
-              userWallet: user.walletAddress,
+              userWallet: walletAddress,
               currentBalance: userBalance,
               requiredAmount: totalAmount,
               shortage: parseFloat((totalAmount - userBalance).toFixed(2)),
@@ -247,7 +241,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
         }
 
         // 7. Transfer USDC from client wallet to settlement wallet
-        console.log(`Transferring ${totalAmount} USDC from client ${user.walletAddress} to settlement wallet ${config.solana.settlementWalletPublicKey}`);
+        console.log(`Transferring ${totalAmount} USDC from client ${walletAddress} to settlement wallet ${config.solana.settlementWalletPublicKey}`);
         
         // TODO: Implement actual transfer from client to settlement
         // For now, this is mocked - in production, client needs to sign transaction
@@ -266,7 +260,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
           message: 'Task published successfully with escrow payment',
           data: publishedTask,
           escrow: {
-            fromWallet: user.walletAddress,
+            fromWallet: walletAddress,
             toWallet: config.solana.settlementWalletPublicKey,
             amount: totalAmount,
             reward: parseFloat(task.reward),
@@ -395,6 +389,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
                         category: { type: ['string', 'null'] },
                         reward: { type: 'string' },
                         qty: { type: 'integer' },
+                        budget: { type: ['string', 'null'], description: 'Total cost (budget)' },
                         deadline: { type: ['string', 'null'] },
                         status: { type: 'string' },
                         createdAt: { type: 'string' },
