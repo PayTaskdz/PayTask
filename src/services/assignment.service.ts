@@ -95,7 +95,29 @@ export class AssignmentService {
           },
         });
 
-        // 8. Clear cache
+        // 7. Update task status to 'active' (first worker accepted)
+        // Only update if task is still in 'open' status
+        await tx.task.update({
+          where: { id: taskId },
+          data: { status: 'active' },
+        });
+
+        // 8. Create audit log for task status change
+        await tx.auditLog.create({
+          data: {
+            actorId: userId,
+            action: 'task_status_changed',
+            details: {
+              entityType: 'task',
+              entityId: taskId,
+              oldStatus: 'open',
+              newStatus: 'active',
+              reason: 'First worker accepted task',
+            },
+          },
+        });
+
+        // 9. Clear cache
         await this.clearAssignmentCache(userId);
 
       return {

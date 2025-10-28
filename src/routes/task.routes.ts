@@ -349,6 +349,8 @@ export async function taskRoutes(fastify: FastifyInstance) {
         querystring: {
           type: 'object',
           properties: {
+            clientId: { type: 'string', format: 'uuid', description: 'Filter tasks by client ID' },
+            status: { type: 'string', description: 'Filter by status (draft, open, in_progress, completed, cancelled)' },
             category: { type: 'string', description: 'Task category filter' },
             minReward: { type: 'number', description: 'Minimum reward (USD)', minimum: 0 },
             maxReward: { type: 'number', description: 'Maximum reward (USD)', minimum: 0 },
@@ -364,10 +366,9 @@ export async function taskRoutes(fastify: FastifyInstance) {
               default: 'desc',
               description: 'Sort order',
             },
-            page: { type: 'integer', default: 1, minimum: 1, description: 'Page number (1-based)' },
+            page: { type: 'integer', minimum: 1, description: 'Page number (1-based)' },
             limit: {
               type: 'integer',
-              default: 20,
               minimum: 1,
               maximum: 100,
               description: 'Items per page (max 100)',

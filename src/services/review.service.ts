@@ -86,9 +86,26 @@ export class ReviewService {
         data: { status: 'completed' },
       });
 
-      // 7. Update task status to completed
-      console.log('🔵 Updating task status to completed');
-      await taskService.updateTaskStatus(submission.assignment.task.id, 'completed');
+      // 7. Check if ALL assignments for this task are completed
+      const taskId = submission.assignment.task.id;
+      const taskQty = submission.assignment.task.qty;
+      
+      const completedAssignmentsCount = await tx.assignment.count({
+        where: {
+          taskId: taskId,
+          status: 'completed',
+        },
+      });
+
+      console.log(`🔵 Task ${taskId}: ${completedAssignmentsCount}/${taskQty} assignments completed`);
+
+      // Only update task to 'completed' if ALL assignments are done
+      if (completedAssignmentsCount >= taskQty) {
+        console.log('✅ All assignments completed! Updating task status to completed');
+        await taskService.updateTaskStatus(taskId, 'completed');
+      } else {
+        console.log(`⏳ Still waiting for ${taskQty - completedAssignmentsCount} more assignments`);
+      }
 
       // 8. Get worker wallet information
       const worker = await tx.user.findUnique({

@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 // Query parameters schema for task discovery
 export const TaskDiscoveryQuerySchema = z.object({
+  clientId: z.string().uuid().optional(),
+  status: z.string().optional(),
   category: z.string().optional(),
   minReward: z.coerce.number().min(0).optional(),
   maxReward: z.coerce.number().min(0).optional(),

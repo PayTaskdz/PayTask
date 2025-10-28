@@ -432,7 +432,7 @@ export class TaskService {
     query: TaskDiscoveryQuery,
     userId?: string
   ): Promise<{ data: TaskDiscoveryItem[]; pagination: PaginationMeta }> {
-    const { category, minReward, maxReward, sortBy, order, page, limit } = query;
+    const { clientId, status, category, minReward, maxReward, sortBy, order, page, limit } = query;
 
     // Build cache key
     const cacheKey = `tasks:discover:${JSON.stringify({ ...query, userId })}`;
@@ -444,9 +444,17 @@ export class TaskService {
     }
 
     // Build where clause
-    const where: Prisma.TaskWhereInput = {
-      status: 'open',
-    };
+    const where: Prisma.TaskWhereInput = {};
+
+    // Filter by status (if not specified, don't filter by status)
+    if (status) {
+      where.status = status as any;
+    }
+
+    // Filter by clientId
+    if (clientId) {
+      where.clientId = clientId;
+    }
 
     // Filter by category
     if (category) {
