@@ -339,103 +339,12 @@ export async function taskRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // Get All Tasks (No Filters)
+  // Get All Tasks with filtering and pagination
   fastify.get(
     '/all',
     {
       schema: {
-        description: 'Get all tasks in the system (no filters)',
-        tags: ['Tasks'],
-        response: {
-          200: {
-            description: 'All tasks retrieved successfully',
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              data: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string' },
-                    title: { type: 'string' },
-                    description: { type: ['string', 'null'] },
-                    category: { type: ['string', 'null'] },
-                    reward: { type: 'string' },
-                    qty: { type: 'integer' },
-                    deadline: { type: ['string', 'null'] },
-                    status: { type: 'string' },
-                    createdAt: { type: 'string' },
-                    client: {
-                      type: 'object',
-                      properties: {
-                        id: { type: 'string' },
-                        email: { type: 'string' },
-                        country: { type: ['string', 'null'] },
-                      },
-                    },
-                    escrow: {
-                      type: ['object', 'null'],
-                      properties: {
-                        amount: { type: 'string' },
-                        status: { type: 'string' },
-                      },
-                    },
-                    _count: {
-                      type: 'object',
-                      properties: {
-                        assignments: { type: 'integer' },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-          500: {
-            description: 'Internal server error',
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              error: {
-                type: 'object',
-                properties: {
-                  message: { type: 'string' },
-                  code: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-    async (_request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const tasks = await taskService.getAllTasks();
-
-        return reply.code(200).send({
-          success: true,
-          data: tasks,
-        });
-      } catch (error: any) {
-        fastify.log.error(error);
-        return reply.code(500).send({
-          success: false,
-          error: {
-            message: 'Internal server error',
-            code: 'INTERNAL_ERROR',
-          },
-        });
-      }
-    }
-  );
-
-  // Task Discovery Endpoint
-  fastify.get(
-    '/discover',
-    {
-      schema: {
-        description: 'List all available tasks with filtering and pagination',
+        description: 'Get all tasks with optional filtering and pagination',
         tags: ['Tasks'],
         querystring: {
           type: 'object',
@@ -492,14 +401,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
                           type: 'object',
                           properties: {
                             id: { type: 'string' },
-                            country: { type: ['string', 'null'] },
-                          },
-                        },
-                        escrow: {
-                          type: ['object', 'null'],
-                          properties: {
-                            amount: { type: 'string' },
-                            status: { type: 'string' },
+                            email: { type: 'string' },
                           },
                         },
                         _count: {
@@ -560,7 +462,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
         // Validate query parameters
         const queryParams = TaskDiscoveryQuerySchema.parse(request.query);
 
-        // Get tasks (auth skipped as per requirements)
+        // Get tasks with filtering and pagination
         const result = await taskService.discoverTasks(queryParams);
 
         const response: TaskDiscoveryResponse = {

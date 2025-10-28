@@ -9,7 +9,7 @@ const registerSchema = z.object({
   username: z.string().min(3).max(50),
   email: z.string().email(),
   password: z.string().min(6),
-  role: z.enum(['WORKER', 'CLIENT']).optional().default('CLIENT')
+  role: z.enum(['worker', 'client']).optional().default('client')
 });
 
 const loginSchema = z.object({
@@ -34,7 +34,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
           username: { type: 'string', minLength: 3, maxLength: 50 },
           email: { type: 'string', format: 'email' },
           password: { type: 'string', minLength: 6 },
-          role: { type: 'string', enum: ['WORKER', 'CLIENT'], default: 'CLIENT' }
+          role: { type: 'string', enum: ['worker', 'client'], default: 'client' }
         }
       },
       response: {

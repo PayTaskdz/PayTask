@@ -17,6 +17,8 @@ const withdrawSchema = z.object({
   assetId: z.string().min(1)
 });
 
+
+
 export const walletRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   const solanaService = new SolanaService();
   // ============ Helper Functions ============
@@ -100,6 +102,80 @@ export const walletRoutes: FastifyPluginAsync = async (fastify: FastifyInstance)
       }
     }
     return false;
+  }
+  // Process withdrawal
+  async function processWithdrawal(
+    wallet: any,
+    withdrawalRequest: {
+      recipientAddress: string;
+      amount: number;
+      assetId: string;
+    }
+  ) {
+    try {
+      // Create withdrawal via Fystack
+      const result = await fystackService.createWithdrawal(
+        wallet.fystackWalletId,
+        withdrawalRequest,
+      );
+
+      // Verify the withdrawal by polling the Fystack API
+      const isVerified = await verifyWithdrawalByPolling(
+        wallet.fystackWalletId,
+        result.transactionId
+      );
+
+      if (isVerified) {
+        // Wait for transaction confirmation then sync
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        try {
+          const solanaAddress = (wallet.addresses as any)?.solana;
+          if (solanaAddress) {
+            const solanaTransactions = await solanaService.getTransactionHistory(solanaAddress, 1);
+            if (solanaTransactions?.length > 0) {
+              await syncTransactionToDatabase(wallet, solanaTransactions[0]);
+            }
+          }
+        } catch (syncError) {
+          fastify.log.error({ error: syncError }, `Failed to sync transaction for wallet ${wallet.id}`);
+        }
+
+        return {
+          success: true,
+          transactionId: result.transactionId,
+          amount: withdrawalRequest.amount,
+          asset: withdrawalRequest.assetId,
+          toAddress: withdrawalRequest.recipientAddress,
+          network: 'solana',
+          status: 'completed',
+          message: 'Withdrawal completed successfully'
+        };
+      } else {
+        return {
+          success: false,
+          transactionHash: null,
+          amount: withdrawalRequest.amount,
+          asset: withdrawalRequest.assetId,
+          toAddress: withdrawalRequest.recipientAddress,
+          network: 'solana',
+          status: 'failed',
+          message: 'Withdrawal verification failed'
+        };
+      }
+    } catch (error) {
+      fastify.log.error({ error }, `Withdrawal failed for wallet ${wallet.id}`);
+      return {
+        success: false,
+        transactionHash: null,
+        amount: withdrawalRequest.amount,
+        asset: withdrawalRequest.assetId,
+        toAddress: withdrawalRequest.recipientAddress,
+        network: 'solana',
+        status: 'failed',
+        message: 'Withdrawal failed to execute'
+      };
+    }
   }
   // ============ Routes ============
 
@@ -484,70 +560,9 @@ export const walletRoutes: FastifyPluginAsync = async (fastify: FastifyInstance)
         assetId: withdrawDto.assetId,
       };
 
-      try {
-        const result = await fystackService.createWithdrawal(
-          wallet.fystackWalletId,
-          withdrawalRequest,
-        );
-
-        // Verify the withdrawal by polling the Fystack API
-        const isVerified = await verifyWithdrawalByPolling(
-          wallet.fystackWalletId,
-          result.transactionId
-        );
-
-        if (isVerified) {
-
-          // Wait for transaction confirmation then sync
-          await new Promise(resolve => setTimeout(resolve, 3000));
-
-          try {
-            const solanaAddress = (wallet.addresses as any)?.solana;
-            if (solanaAddress) {
-              const solanaTransactions = await solanaService.getTransactionHistory(solanaAddress, 1);
-              if (solanaTransactions?.length > 0) {
-                await syncTransactionToDatabase(wallet, solanaTransactions[0]);
-              }
-            }
-          } catch (syncError) {
-            fastify.log.error({ error: syncError }, `Failed to sync transaction for wallet ${walletId}`);
-          }
-
-          reply.send({
-            success: true,
-            transactionId: result.transactionId,
-            amount: withdrawalRequest.amount,
-            asset: withdrawalRequest.assetId,
-            toAddress: withdrawalRequest.recipientAddress,
-            network: 'solana',
-            status: 'completed',
-            message: 'Withdrawal completed successfully'
-          });
-        } else {
-          reply.send({
-            success: false,
-            transactionHash: null,
-            amount: withdrawalRequest.amount,
-            asset: withdrawalRequest.assetId,
-            toAddress: withdrawalRequest.recipientAddress,
-            network: 'solana',
-            status: 'failed',
-            message: 'Withdrawal verification failed'
-          });
-        }
-      } catch (error) {
-        fastify.log.error({ error }, `Withdrawal failed for wallet ${walletId}`);
-        reply.send({
-          success: false,
-          transactionHash: null,
-          amount: withdrawalRequest.amount,
-          asset: withdrawalRequest.assetId,
-          toAddress: withdrawalRequest.recipientAddress,
-          network: 'solana',
-          status: 'failed',
-          message: 'Withdrawal failed to execute'
-        });
-      }
+      // Process withdrawal using helper function
+      const result = await processWithdrawal(wallet, withdrawalRequest);
+      reply.send(result);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return reply.code(400).send({

@@ -17,6 +17,7 @@ datasource db {
 enum UserRole {
   client
   worker
+  admin
 }
 
 enum AssignmentStatus {

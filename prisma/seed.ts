@@ -72,6 +72,17 @@ async function main() {
   console.log('👥 Creating users...');
   const password = await bcrypt.hash('password123', 10);
 
+  // Admin
+  const admin = await prisma.user.create({
+    data: {
+      email: 'admin@paytask.com',
+      username: 'admin',
+      passwordHash: password,
+      role: 'admin',
+      isActive: true,
+    },
+  });
+
   // Clients
   const client1 = await prisma.user.create({
     data: {
@@ -149,6 +160,20 @@ async function main() {
   // ============================================
   console.log('💰 Creating wallets...');
   
+  void await prisma.wallet.create({
+    data: {
+      userId: admin.id,
+      fystackWalletId: 'fystack_wallet_admin_001',
+      fystackWorkspaceId: 'fystack_workspace_001',
+      addresses: {
+        ethereum: '0x0000000000000000000000000000000000000000',
+        polygon: '0x0000000000000000000000000000000000000001',
+      },
+      walletName: 'Admin Main Wallet',
+      isActive: true,
+    },
+  });
+
   const walletClient1 = await prisma.wallet.create({
     data: {
       userId: client1.id,
@@ -957,6 +982,7 @@ async function main() {
   console.log('\n✅ Seed completed successfully!\n');
   console.log('📊 Summary:');
   console.log(`   - Users: ${await prisma.user.count()}`);
+  console.log(`     • Admin: ${await prisma.user.count({ where: { role: 'admin' } })}`);
   console.log(`     • Clients: ${await prisma.user.count({ where: { role: 'client' } })}`);
   console.log(`     • Workers: ${await prisma.user.count({ where: { role: 'worker' } })}`);
   console.log(`   - Wallets: ${await prisma.wallet.count()}`);
@@ -982,6 +1008,8 @@ async function main() {
   console.log('\n🎉 Database is ready for testing!\n');
 
   console.log('📝 Test Credentials (all use password: "password123"):');
+  console.log('\n   Admin:');
+  console.log('   - admin@paytask.com (Admin - Can perform refunds)');
   console.log('\n   Clients:');
   console.log('   - client1@paytask.com (Alice)');
   console.log('   - client2@paytask.com (Bob)');

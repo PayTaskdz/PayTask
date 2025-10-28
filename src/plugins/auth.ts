@@ -11,6 +11,7 @@ declare module 'fastify' {
     user: {
       userId: string;
       sessionId: string;
+      role: 'client' | 'worker' | 'admin';
     };
   }
 }
@@ -38,7 +39,8 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       // Set user information on request
       request.user = {
         userId: validation.user.id,
-        sessionId: validation.session?.id || ''
+        sessionId: validation.session?.id || '',
+        role: validation.user.role
       };
 
     } catch (error) {

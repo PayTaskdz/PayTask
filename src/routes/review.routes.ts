@@ -141,11 +141,17 @@ export async function reviewRoutes(fastify: FastifyInstance) {
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        // TODO: Add admin/support role validation here
-        // For now, any authenticated user can refund (should be restricted to support/admin)
+        // Admin role validation
+        if (request.user.role !== 'admin') {
+          return reply.code(403).send({ 
+            error: 'UNAUTHORIZED_ONLY_ADMIN_CAN_REFUND',
+            message: 'Only admin users can perform refunds'
+          });
+        }
 
         const body = request.body as RefundTaskBody;
         const result = await reviewService.refundTask(
+          request.user.userId,
           body.taskId,
           body.reason
         );
@@ -232,6 +238,136 @@ export async function reviewRoutes(fastify: FastifyInstance) {
         );
         return reply.send(reviews);
       } catch (error: any) {
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
+   * GET /api/reviews/admin/pending-refunds
+   * Get all rejected submissions pending admin review (Admin only)
+   */
+  fastify.get(
+    '/admin/pending-refunds',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        description: 'Get all rejected submissions pending admin review',
+        tags: ['Reviews'],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // Admin role validation
+        if (request.user.role !== 'admin') {
+          return reply.code(403).send({
+            error: 'UNAUTHORIZED_ADMIN_ONLY',
+            message: 'Only admin users can view pending refunds',
+          });
+        }
+
+        // Get all rejected submissions from tasks that are still active
+        const rejectedSubmissions = await fastify.prisma.submission.findMany({
+          where: {
+            status: 'rejected',
+            assignment: {
+              task: {
+                status: { in: ['active', 'open'] }, // Only active tasks
+              },
+            },
+          },
+          include: {
+            assignment: {
+              include: {
+                task: {
+                  include: {
+                    client: {
+                      select: {
+                        id: true,
+                        email: true,
+                        username: true,
+                      },
+                    },
+                  },
+                },
+                worker: {
+                  select: {
+                    id: true,
+                    email: true,
+                    username: true,
+                  },
+                },
+              },
+            },
+            reviews: {
+              where: { decision: 'reject' },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+          },
+          orderBy: {
+            submittedAt: 'desc',
+          },
+        });
+
+        // Format response
+        const pendingReviews = rejectedSubmissions.map((submission) => ({
+          submissionId: submission.id,
+          status: submission.status,
+          payloadUrl: submission.payloadUrl,
+          submittedAt: submission.submittedAt,
+          task: {
+            id: submission.assignment.task.id,
+            title: submission.assignment.task.title,
+            description: submission.assignment.task.description,
+            reward: submission.assignment.task.reward.toString(),
+            qty: submission.assignment.task.qty,
+            deadline: submission.assignment.task.deadline,
+            status: submission.assignment.task.status,
+          },
+          client: {
+            id: submission.assignment.task.client.id,
+            email: submission.assignment.task.client.email,
+            username: submission.assignment.task.client.username,
+          },
+          worker: {
+            id: submission.assignment.worker.id,
+            email: submission.assignment.worker.email,
+            username: submission.assignment.worker.username,
+          },
+          rejection: {
+            reviewId: submission.reviews[0]?.id,
+            feedback: submission.reviews[0]?.feedback,
+            rejectedAt: submission.reviews[0]?.createdAt,
+          },
+          suggestedActions: [
+            {
+              action: 'REFUND',
+              description: 'Refund the task amount to client',
+              endpoint: 'POST /api/reviews/refund',
+              payload: {
+                taskId: submission.assignment.task.id,
+                reason: 'Approved by admin after review',
+              },
+            },
+            {
+              action: 'REQUEST_FIX',
+              description: 'Request worker to fix and resubmit',
+              endpoint: 'POST /api/submissions/:id/request-fix',
+              payload: {
+                feedback: 'Please address the issues mentioned in the review',
+              },
+            },
+          ],
+        }));
+
+        return reply.send({
+          total: pendingReviews.length,
+          pendingRefunds: pendingReviews,
+        });
+      } catch (error: any) {
+        fastify.log.error({ error }, 'Error getting pending refunds');
         return reply.code(500).send({ error: error.message });
       }
     }

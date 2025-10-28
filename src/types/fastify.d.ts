@@ -5,6 +5,7 @@ declare module 'fastify' {
     user: {
       userId: string;
       sessionId: string;
+      role: 'client' | 'worker' | 'admin';
     };
   }
 }

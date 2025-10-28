@@ -93,6 +93,29 @@ export class SubmissionService {
         },
       });
 
+      // 9. Create notification for client
+      await tx.notification.create({
+        data: {
+          toUserId: assignment.task.clientId,
+          type: 'SUBMISSION_CREATED',
+          content: `New submission received for task "${assignment.task.title}" from ${assignment.worker.username || assignment.worker.email}`,
+          status: 'pending',
+          meta: {
+            submissionId: submission.id,
+            assignmentId: assignmentId,
+            taskId: assignment.task.id,
+            taskTitle: assignment.task.title,
+            workerId: assignment.workerId,
+            workerUsername: assignment.worker.username,
+            workerEmail: assignment.worker.email,
+            submittedAt: submission.submittedAt.toISOString(),
+            earlySubmission: earlyBonus.isEarly,
+            hoursEarly: earlyBonus.hoursEarly,
+            bonusPoints: earlyBonus.bonusPoints,
+          },
+        },
+      });
+
       return {
         id: submission.id,
         assignmentId: submission.assignmentId,

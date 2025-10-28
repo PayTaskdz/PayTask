@@ -130,7 +130,30 @@ export class ReviewService {
         throw new Error(`PAYMENT_TRANSFER_FAILED: ${error.message}`);
       }
 
-      // 11. Build response
+      // 11. Create notification for worker
+      console.log('🔵 Creating notification for worker');
+      await tx.notification.create({
+        data: {
+          toUserId: submission.assignment.worker.id,
+          type: 'SUBMISSION_ACCEPTED',
+          content: `Your submission for "${submission.assignment.task.title}" has been accepted! Payment of ${rewardAmount} USDC has been transferred to your wallet.`,
+          status: 'pending',
+          meta: {
+            submissionId: submission.id,
+            taskId: submission.assignment.task.id,
+            taskTitle: submission.assignment.task.title,
+            reviewId: review.id,
+            paymentAmount: rewardAmount,
+            paymentSignature: paymentResult.signature,
+            walletAddress: workerWalletAddress,
+            acceptedAt: new Date().toISOString(),
+            feedback: data.feedback,
+          },
+        },
+      });
+      console.log('✅ Notification created for worker');
+
+      // 12. Build response
       const result = {
         id: review.id,
         submissionId: review.submissionId,
@@ -231,7 +254,51 @@ export class ReviewService {
         data: { status: 'rejected' },
       });
 
-      // 6. Build response
+      // 6. Create notifications for worker and client
+      console.log('🔵 Creating notifications for worker and client');
+      
+      // Notification for worker
+      await tx.notification.create({
+        data: {
+          toUserId: submission.assignment.worker.id,
+          type: 'SUBMISSION_REJECTED',
+          content: `Your submission for "${submission.assignment.task.title}" has been rejected by the client.`,
+          status: 'pending',
+          meta: {
+            submissionId: submission.id,
+            taskId: submission.assignment.task.id,
+            taskTitle: submission.assignment.task.title,
+            rejectionReason: data.feedback,
+            reviewId: review.id,
+            rejectedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      // Notification for client (confirmation)
+      await tx.notification.create({
+        data: {
+          toUserId: submission.assignment.task.clientId,
+          type: 'SUBMISSION_REJECTED_CONFIRMED',
+          content: `Submission for "${submission.assignment.task.title}" has been rejected. Admin will review for refund decision.`,
+          status: 'pending',
+          meta: {
+            submissionId: submission.id,
+            taskId: submission.assignment.task.id,
+            taskTitle: submission.assignment.task.title,
+            workerId: submission.assignment.worker.id,
+            workerEmail: submission.assignment.worker.email,
+            rejectionReason: data.feedback,
+            reviewId: review.id,
+            rejectedAt: new Date().toISOString(),
+            nextAction: 'ADMIN_REVIEW_PENDING',
+          },
+        },
+      });
+
+      console.log('✅ Notifications created for worker and client');
+
+      // 7. Build response
       const result: ReviewResponse = {
         id: review.id,
         submissionId: review.submissionId,
@@ -265,17 +332,35 @@ export class ReviewService {
    * Refund task to client
    * Support decides that dispute cannot be resolved -> Refund USDC to client
    * Transfer from settlement wallet back to client wallet (reward only, fee is kept)
+   * Only admin can perform refund
    */
   async refundTask(
+    adminUserId: string,
     taskId: string,
     reason: string
   ): Promise<{ success: boolean; refund: { signature: string; amount: number }; taskId: string }> {
-    console.log('🔵 START refundTask:', { taskId, reason });
+    console.log('🔵 START refundTask:', { adminUserId, taskId, reason });
 
     return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       console.log('🔵 Transaction started');
 
-      // 1. Get task with client details
+      // 1. Verify admin user
+      console.log('🔵 Verifying admin user:', adminUserId);
+      const adminUser = await tx.user.findUnique({
+        where: { id: adminUserId },
+      });
+
+      if (!adminUser) {
+        console.log('❌ User NOT_FOUND');
+        throw new Error('USER_NOT_FOUND');
+      }
+
+      if (adminUser.role !== 'admin') {
+        console.log('❌ UNAUTHORIZED - User is not admin');
+        throw new Error('UNAUTHORIZED_ONLY_ADMIN_CAN_REFUND');
+      }
+
+      // 2. Get task with client details
       console.log('🔵 Fetching task:', taskId);
       const task = await tx.task.findUnique({
         where: { id: taskId },
@@ -296,7 +381,7 @@ export class ReviewService {
         throw new Error('TASK_NOT_FOUND');
       }
 
-      // 2. Check task status - should not be completed or already cancelled
+      // 3. Check task status - should not be completed or already cancelled
       if (task.status === 'completed') {
         throw new Error('TASK_ALREADY_COMPLETED');
       }
@@ -305,7 +390,7 @@ export class ReviewService {
         throw new Error('TASK_ALREADY_CANCELLED');
       }
 
-      // 3. Get client wallet information
+      // 4. Get client wallet information
       if (!task.client.wallet || task.client.wallet.length === 0) {
         throw new Error('CLIENT_WALLET_NOT_FOUND');
       }
@@ -318,12 +403,12 @@ export class ReviewService {
         throw new Error('CLIENT_WALLET_ADDRESS_NOT_FOUND');
       }
 
-      // 4. Calculate refund amount (reward * qty, fee is NOT refunded)
+      // 5. Calculate refund amount (reward * qty, fee is NOT refunded)
       const refundAmount = parseFloat(task.reward.toString()) * task.qty;
       console.log(`💰 Refunding ${refundAmount} USDC to client ${clientWalletAddress}`);
       console.log(`ℹ️ Fee is kept by platform (not refunded)`);
 
-      // 5. Transfer USDC from settlement wallet to client wallet
+      // 6. Transfer USDC from settlement wallet to client wallet
       let refundResult;
       try {
         refundResult = await solanaService.transferToWallet(
@@ -343,7 +428,7 @@ export class ReviewService {
       // 7. Create audit log
       await tx.auditLog.create({
         data: {
-          actorId: task.clientId,
+          actorId: adminUserId,
           action: 'refund_task',
           details: {
             entityType: 'task',
@@ -351,6 +436,7 @@ export class ReviewService {
             refundAmount: refundAmount,
             signature: refundResult.signature,
             reason: reason,
+            refundedBy: adminUserId,
           },
         },
       });

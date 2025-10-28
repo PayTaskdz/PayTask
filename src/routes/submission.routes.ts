@@ -326,5 +326,221 @@ export async function submissionRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  /**
+   * POST /api/submissions/:id/request-fix
+   * Request worker to fix and resubmit (Admin only)
+   */
+  fastify.post<{ 
+    Params: { id: string };
+    Body: { feedback: string };
+  }>(
+    '/:id/request-fix',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        description: 'Request worker to fix and resubmit the submission (Admin only)',
+        tags: ['Submissions'],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['feedback'],
+          properties: {
+            feedback: { 
+              type: 'string',
+              minLength: 10,
+              description: 'Detailed feedback on what needs to be fixed',
+            },
+          },
+        },
+        response: {
+          200: {
+            description: 'Fix request sent successfully',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              message: { type: 'string' },
+              data: {
+                type: 'object',
+                properties: {
+                  submissionId: { type: 'string' },
+                  status: { type: 'string' },
+                  feedback: { type: 'string' },
+                  workerNotificationId: { type: 'string' },
+                  clientNotificationId: { type: 'string' },
+                },
+              },
+            },
+          },
+          403: {
+            description: 'Forbidden - Admin only',
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
+          404: {
+            description: 'Submission not found',
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const { id: submissionId } = request.params;
+        const { feedback } = request.body;
+        const userId = request.user.userId;
+        const userRole = request.user.role;
+
+        // Check authorization: only admin can request fix
+        if (userRole !== 'admin') {
+          return reply.code(403).send({
+            error: 'UNAUTHORIZED',
+            message: 'Only admin can request submission fix',
+          });
+        }
+
+        // Get submission with task and worker details
+        const submission = await fastify.prisma.submission.findUnique({
+          where: { id: submissionId },
+          include: {
+            assignment: {
+              include: {
+                task: {
+                  select: {
+                    id: true,
+                    title: true,
+                    clientId: true,
+                  },
+                },
+                worker: {
+                  select: {
+                    id: true,
+                    email: true,
+                    username: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (!submission) {
+          return reply.code(404).send({ 
+            error: 'SUBMISSION_NOT_FOUND',
+            message: 'Submission not found',
+          });
+        }
+
+        // Check if submission is in a fixable state (rejected or submitted)
+        if (submission.status !== 'rejected' && submission.status !== 'submitted') {
+          return reply.code(400).send({
+            error: 'INVALID_STATUS',
+            message: `Cannot request fix for submission with status: ${submission.status}`,
+          });
+        }
+
+        // Update submission status to fix_requested
+        const updatedSubmission = await fastify.prisma.submission.update({
+          where: { id: submissionId },
+          data: { status: 'fix_requested' },
+        });
+
+        // Create notification for worker
+        const workerNotification = await fastify.prisma.notification.create({
+          data: {
+            toUserId: submission.assignment.worker.id,
+            type: 'SUBMISSION_FIX_REQUESTED',
+            content: `Admin requested you to fix and resubmit your work on task "${submission.assignment.task.title}"`,
+            status: 'pending',
+            meta: {
+              submissionId: submissionId,
+              taskId: submission.assignment.task.id,
+              taskTitle: submission.assignment.task.title,
+              feedback: feedback,
+              requestedBy: userId,
+              requestedAt: new Date().toISOString(),
+            },
+          },
+        });
+
+        // Create notification for client
+        const clientNotification = await fastify.prisma.notification.create({
+          data: {
+            toUserId: submission.assignment.task.clientId,
+            type: 'SUBMISSION_FIX_REQUESTED_CLIENT',
+            content: `Admin requested worker to fix submission for task "${submission.assignment.task.title}"`,
+            status: 'pending',
+            meta: {
+              submissionId: submissionId,
+              taskId: submission.assignment.task.id,
+              taskTitle: submission.assignment.task.title,
+              workerId: submission.assignment.worker.id,
+              workerUsername: submission.assignment.worker.username,
+              feedback: feedback,
+              requestedBy: userId,
+              requestedAt: new Date().toISOString(),
+            },
+          },
+        });
+
+        // Create audit log
+        await fastify.prisma.auditLog.create({
+          data: {
+            actorId: userId,
+            action: 'request_submission_fix',
+            details: {
+              submissionId: submissionId,
+              taskId: submission.assignment.task.id,
+              workerId: submission.assignment.worker.id,
+              clientId: submission.assignment.task.clientId,
+              feedback: feedback,
+              previousStatus: submission.status,
+              newStatus: 'fix_requested',
+            },
+          },
+        });
+
+        fastify.log.info(`Admin ${userId} requested fix for submission ${submissionId}`);
+
+        return reply.code(200).send({
+          success: true,
+          message: 'Fix request sent to worker and client successfully',
+          data: {
+            submissionId: updatedSubmission.id,
+            status: updatedSubmission.status,
+            feedback: feedback,
+            workerNotificationId: workerNotification.id,
+            clientNotificationId: clientNotification.id,
+            worker: {
+              id: submission.assignment.worker.id,
+              email: submission.assignment.worker.email,
+              username: submission.assignment.worker.username,
+            },
+            client: {
+              id: submission.assignment.task.clientId,
+            },
+          },
+        });
+      } catch (error: any) {
+        fastify.log.error({ error }, 'Error requesting submission fix');
+        return reply.code(500).send({
+          error: 'INTERNAL_ERROR',
+          message: 'Failed to request submission fix',
+        });
+      }
+    }
+  );
 }
 
