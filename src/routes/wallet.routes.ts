@@ -12,9 +12,9 @@ const createWalletSchema = z.object({
 });
 
 const withdrawSchema = z.object({
-  recipientAddress: z.string().min(1),
   amount: z.number().positive(),
-  assetId: z.string().min(1)
+  assetId: z.string().min(1),
+  recipientAddress: z.string().min(1)
 });
 
 
@@ -113,56 +113,52 @@ export const walletRoutes: FastifyPluginAsync = async (fastify: FastifyInstance)
     }
   ) {
     try {
-      // Create withdrawal via Fystack
-      const result = await fystackService.createWithdrawal(
-        wallet.fystackWalletId,
-        withdrawalRequest,
+      fastify.log.info(`Processing withdrawal from settlement wallet to ${withdrawalRequest.recipientAddress}`);
+      fastify.log.info(`Amount: ${withdrawalRequest.amount} USDC`);
+
+      // Transfer USDC from settlement wallet to recipient using SolanaService
+      const result = await solanaService.sendUsdcFromSettlement(
+        withdrawalRequest.recipientAddress,
+        withdrawalRequest.amount
       );
 
-      // Verify the withdrawal by polling the Fystack API
-      const isVerified = await verifyWithdrawalByPolling(
-        wallet.fystackWalletId,
-        result.transactionId
-      );
+      fastify.log.info(`Withdrawal successful. Transaction signature: ${result.signature}`);
 
-      if (isVerified) {
-        // Wait for transaction confirmation then sync
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        try {
-          const solanaAddress = (wallet.addresses as any)?.solana;
-          if (solanaAddress) {
-            const solanaTransactions = await solanaService.getTransactionHistory(solanaAddress, 1);
-            if (solanaTransactions?.length > 0) {
-              await syncTransactionToDatabase(wallet, solanaTransactions[0]);
-            }
+      // Save transaction to database
+      try {
+        await fastify.prisma.transaction.create({
+          data: {
+            hash: result.signature,
+            walletId: wallet.id,
+            fromAddress: solanaService.getSettlementWalletAddress(),
+            toAddress: withdrawalRequest.recipientAddress,
+            amount: result.amount.toString(),
+            type: 'OUT',
+            status: 'confirmed',
+            direction: 'out',
+            network: 'solana',
+            assetSymbol: 'USDC',
+            assetName: 'USD Coin',
+            blockTime: new Date(),
           }
-        } catch (syncError) {
-          fastify.log.error({ error: syncError }, `Failed to sync transaction for wallet ${wallet.id}`);
-        }
-
-        return {
-          success: true,
-          transactionId: result.transactionId,
-          amount: withdrawalRequest.amount,
-          asset: withdrawalRequest.assetId,
-          toAddress: withdrawalRequest.recipientAddress,
-          network: 'solana',
-          status: 'completed',
-          message: 'Withdrawal completed successfully'
-        };
-      } else {
-        return {
-          success: false,
-          transactionHash: null,
-          amount: withdrawalRequest.amount,
-          asset: withdrawalRequest.assetId,
-          toAddress: withdrawalRequest.recipientAddress,
-          network: 'solana',
-          status: 'failed',
-          message: 'Withdrawal verification failed'
-        };
+        });
+        fastify.log.info(`Transaction saved to database: ${result.signature}`);
+      } catch (dbError) {
+        fastify.log.error({ error: dbError }, 'Failed to save transaction to database');
+        // Continue even if DB save fails
       }
+
+      return {
+        success: true,
+        transactionId: result.signature,
+        amount: withdrawalRequest.amount,
+        asset: withdrawalRequest.assetId,
+        toAddress: withdrawalRequest.recipientAddress,
+        fromAddress: solanaService.getSettlementWalletAddress(),
+        network: 'solana',
+        status: 'completed',
+        message: 'Withdrawal completed successfully'
+      };
     } catch (error) {
       fastify.log.error({ error }, `Withdrawal failed for wallet ${wallet.id}`);
       return {
@@ -173,7 +169,7 @@ export const walletRoutes: FastifyPluginAsync = async (fastify: FastifyInstance)
         toAddress: withdrawalRequest.recipientAddress,
         network: 'solana',
         status: 'failed',
-        message: 'Withdrawal failed to execute'
+        message: error instanceof Error ? error.message : 'Withdrawal failed to execute'
       };
     }
   }
@@ -528,7 +524,7 @@ export const walletRoutes: FastifyPluginAsync = async (fastify: FastifyInstance)
   fastify.post('/:walletId/withdraw', {
     preHandler: [fastify.authenticate],
     schema: {
-      description: 'Withdraw funds from a wallet with blockchain verification',
+      description: 'Withdraw funds from settlement wallet to user-specified address',
       tags: ['Wallet'],
       security: [{ bearerAuth: [] }],
       params: {
@@ -539,11 +535,11 @@ export const walletRoutes: FastifyPluginAsync = async (fastify: FastifyInstance)
       },
       body: {
         type: 'object',
-        required: ['recipientAddress', 'amount', 'assetId'],
+        required: ['amount', 'assetId', 'recipientAddress'],
         properties: {
-          recipientAddress: { type: 'string', minLength: 1 },
           amount: { type: 'number', minimum: 0 },
-          assetId: { type: 'string', minLength: 1 }
+          assetId: { type: 'string', minLength: 1 },
+          recipientAddress: { type: 'string', minLength: 1 }
         }
       }
     }
@@ -553,6 +549,8 @@ export const walletRoutes: FastifyPluginAsync = async (fastify: FastifyInstance)
       const withdrawDto = withdrawSchema.parse(request.body);
 
       const wallet = await findWalletByUserIdAndWalletId(request.user.userId, walletId);
+
+      fastify.log.info(`User ${request.user.userId} withdrawing to address: ${withdrawDto.recipientAddress}`);
 
       const withdrawalRequest = {
         recipientAddress: withdrawDto.recipientAddress,

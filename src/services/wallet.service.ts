@@ -133,7 +133,12 @@ class WalletService {
             }
           }
         } catch (syncError) {
-          this.fastify.log.error({ error: syncError }, `Failed to sync transaction for wallet ${wallet.id}`);
+          this.fastify.log.error({ 
+            error: syncError,
+            message: syncError instanceof Error ? syncError.message : 'Unknown error',
+            stack: syncError instanceof Error ? syncError.stack : undefined,
+            details: JSON.stringify(syncError, null, 2)
+          }, `Failed to sync transaction for wallet ${wallet.id}`);
         }
 
         return {
@@ -159,7 +164,15 @@ class WalletService {
         };
       }
     } catch (error) {
-      this.fastify.log.error({ error }, `Withdrawal failed for wallet ${wallet.id}`);
+      this.fastify.log.error({ 
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        statusCode: (error as any)?.statusCode,
+        response: (error as any)?.response?.data,
+        details: JSON.stringify(error, null, 2)
+      }, `Withdrawal failed for wallet ${wallet.id}`);
+      
       return {
         success: false,
         transactionHash: null,
@@ -168,7 +181,7 @@ class WalletService {
         toAddress: withdrawalRequest.recipientAddress,
         network: 'solana',
         status: 'failed',
-        message: 'Withdrawal failed to execute'
+        message: error instanceof Error ? error.message : 'Withdrawal failed to execute'
       };
     }
   }

@@ -6,6 +6,7 @@ import { config } from '../config/env';
 import { TaskDiscoveryQuerySchema, TaskDiscoveryResponse } from '../types/task.types';
 import { WalletService } from '../services/wallet.service';
 import { ASSET_CONFIG } from '../services/fystack.service';
+import { error } from 'console';
 
 interface CreateTaskBody {
   title: string;
@@ -263,7 +264,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
         };
 
         const withdrawalResult = await walletService.processWithdrawal(clientWallet, withdrawalRequest);
-
+        console.log(withdrawalResult);
         if (!withdrawalResult.success || !withdrawalResult.transactionId) {
           return reply.code(400).send({
             success: false,
@@ -294,6 +295,7 @@ export async function taskRoutes(fastify: FastifyInstance) {
           },
         });
       } catch (error: any) {
+        console.log(error);
         if (error.message === 'TASK_NOT_FOUND') {
           return reply.code(404).send({ error: error.message });
         }

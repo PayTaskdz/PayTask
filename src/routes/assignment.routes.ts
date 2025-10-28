@@ -112,7 +112,7 @@ export async function assignmentRoutes(fastify: FastifyInstance) {
 
         // Accept task
         const assignment = await assignmentService.acceptTask(validatedData.taskId, workerId);
-
+        
         return reply.code(201).send({
           success: true,
           message: 'Task accepted successfully',
@@ -120,7 +120,7 @@ export async function assignmentRoutes(fastify: FastifyInstance) {
         });
       } catch (error: any) {
         fastify.log.error('Error accepting task:', error);
-
+        console.log(error);
         // Handle custom errors
         if (error.message === 'CONCURRENCY_CAP') {
           return reply.code(400).send({

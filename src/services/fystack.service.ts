@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import { error } from 'console';
 
 // Asset configuration
 export const ASSET_CONFIG = {
@@ -103,7 +104,7 @@ export class FystackService {
 
     await this.ensureAuthenticated();
   }
-  
+
   private async ensureAuthenticated(): Promise<void> {
     if (this.sessionCookie) {
 
@@ -134,7 +135,7 @@ export class FystackService {
         );
 
         this.sessionCookie = this.extractSessionCookie(sessionResponse) || cookie;
-        
+
         return; // Exit on success
       } catch (error: any) {
         if (attempt === 5) {
@@ -175,12 +176,12 @@ export class FystackService {
         threshold: 1,
         disabled: false,
       };
-
+      console.log("i'm here");
       // Don't await this - let it run in background and don't fail wallet creation if it fails
       this.updateWalletSettings(newWalletId, settingsToUpdate).catch(error => {
         this.logger.warn(`Settings update failed for wallet ${newWalletId}, but wallet creation was successful:`, error.message);
       });
-
+      console.log("bố m ở đây");
       // Get deposit address for Solana with retry logic
       const addresses: any = {};
 
@@ -341,23 +342,22 @@ export class FystackService {
     walletId: string,
     settings: { auto_approval_limit_usd: number; threshold: number; disabled: boolean },
   ): Promise<void> {
-    await this.ensureAuthenticated();
 
     // Retry logic for wallet that might not be immediately available
-    const maxRetries = 3;
-    const retryDelay = 2000; // 2 seconds
+    const maxRetries = 5;
+    const retryDelay = 10000; // vấn đề timing
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         if (!this.axiosInstance) {
           throw new Error('Axios instance is not initialized');
         }
-
-        const walletResponse = await this.axiosInstance.get(
-          `/wallets/${walletId}`,
-          { headers: { Cookie: this.sessionCookie } },
-        );
-
+        
+          const walletResponse = await this.axiosInstance.get(
+            `/wallets/${walletId}`,
+            { headers: { Cookie: this.sessionCookie } },
+          );
+        
         const walletData = walletResponse.data.data || walletResponse.data;
         const walletName = walletData.name || 'Wallet';
 
@@ -376,17 +376,16 @@ export class FystackService {
 
       } catch (error: any) {
         const isNotFoundError = error.response?.data?.message?.includes('Not found') ||
-                               error.response?.status === 404;
+          error.response?.status === 404;
 
         if (isNotFoundError && attempt < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, retryDelay));
           continue;
         }
 
-        this.logger.error(`Failed to update settings for wallet ${walletId}:`, error.response?.data || error.message);
-
         // If this is the last attempt or not a "not found" error, stop retrying
         if (attempt === maxRetries || !isNotFoundError) {
+          this.logger.error(`Final failure after ${attempt} attempts for wallet ${walletId}`);
           break;
         }
       }

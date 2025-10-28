@@ -51,12 +51,18 @@ export class SolanaService {
       try {
         const privateKeyBytes = bs58.decode(config.solana.settlementWalletPrivateKey);
         this.settlementWallet = Keypair.fromSecretKey(privateKeyBytes);
-        console.log('Settlement wallet initialized:', this.settlementWallet.publicKey.toString());
+        
+        const settlementAddress = this.settlementWallet.publicKey.toString();
+        console.log('✅ Settlement wallet initialized successfully');
+        console.log('📍 Settlement wallet address:', settlementAddress);
+        console.log('🌐 Network:', config.solana.network);
+        console.log('🔗 RPC URL:', config.solana.rpcUrl);
       } catch (error) {
-        console.error('Failed to initialize settlement wallet:', error);
+        console.error('❌ Failed to initialize settlement wallet:', error);
         throw new Error('Invalid settlement wallet private key');
       }
     } else {
+      console.error('❌ Settlement wallet private key not configured');
       throw new Error('Settlement wallet private key not configured');
     }
   }
@@ -68,6 +74,13 @@ export class SolanaService {
   async getSettlementBalance(): Promise<number> {
     const balance = await this.connection.getBalance(this.settlementWallet.publicKey);
     return balance / LAMPORTS_PER_SOL;
+  }
+
+  /**
+   * Get settlement wallet public key (address)
+   */
+  getSettlementWalletAddress(): string {
+    return this.settlementWallet.publicKey.toString();
   }
 
   /**
