@@ -44,7 +44,7 @@ export class SolanaService {
   private settlementWallet: Keypair;
 
   constructor() {
-    this.connection = new Connection(config.solana.rpcUrl, 'confirmed');
+    this.connection = new Connection(config.solana.rpcUrl);
     
     // Initialize settlement wallet from private key
     if (config.solana.settlementWalletPrivateKey) {
@@ -157,18 +157,22 @@ export class SolanaService {
       );
 
       // Get recent blockhash
-      const { blockhash } = await this.connection.getLatestBlockhash();
+      const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = this.settlementWallet.publicKey;
 
       // Sign and send transaction
       transaction.sign(this.settlementWallet);
       const signature = await this.connection.sendRawTransaction(
-        transaction.serialize()
+        transaction.serialize(),
+        {
+          skipPreflight: false,
+          maxRetries: 5,  // allow resends if the leader misses your tx
+        }
       );
 
       // Confirm transaction
-      await this.connection.confirmTransaction(signature, 'confirmed');
+      await this.connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
 
       console.log(`Sent ${amountInUsdc} USDC to ${recipientPublicKey}, signature: ${signature}`);
 
