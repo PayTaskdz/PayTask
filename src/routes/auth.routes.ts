@@ -1,5 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
-import { any, z } from 'zod';
+import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { sessionService } from '../services/session.service';
 import { fystackService } from '../services/fystack.service';

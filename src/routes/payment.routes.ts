@@ -74,7 +74,7 @@ export async function paymentRoutes(fastify: FastifyInstance) {
         }
 
         // Update task status to paid_out
-        await taskService.updateTaskStatus(taskId, 'paid');
+        await taskService.updateTaskStatus(taskId, 'completed');
 
         return reply.send({
           success: true,

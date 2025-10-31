@@ -17,6 +17,7 @@ import { userRoutes } from './routes/users.routes';
 import { walletRoutes } from './routes/wallet.routes';
 import notificationRoutes from './routes/notification.routes';
 import { paymentRoutes } from './routes/payment.routes';
+import { uploadRoutes } from './routes/upload.routes';
 import prisma from './config/prisma';
 import authPlugin from './plugins/auth';
 
@@ -262,6 +263,13 @@ export async function buildApp() {
       await instance.register(paymentRoutes);
     },
     { prefix: '/api/payments' }
+  );
+
+  await fastify.register(
+    async (instance) => {
+      await instance.register(uploadRoutes);
+    },
+    { prefix: '/api/uploads' }
   );
 
   await fastify.register(

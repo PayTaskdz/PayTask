@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, TaskStatus } from '@prisma/client';
 import prisma from '../config/prisma';
 import redis from '../config/redis';
 import { config } from '../config/env';
@@ -39,6 +39,40 @@ interface ListTasksQuery {
 }
 
 export class TaskService {
+  /**
+   * Helper method to invalidate all task-related caches
+   * Call this whenever a task is created, updated, or published
+   */
+  private async invalidateTaskCaches(clientId?: string): Promise<void> {
+    try {
+      // Get all cache keys that match the pattern
+      const pattern = 'tasks:discover:*';
+      const keys = await redis.keys(pattern);
+      
+      // Delete all discovery cache keys
+      if (keys.length > 0) {
+        await redis.del(...keys);
+        console.log(`🗑️ Invalidated ${keys.length} task cache entries`);
+      }
+      
+      // Also invalidate the "all tasks" cache
+      await redis.del('tasks:all');
+      
+      // If clientId is provided, specifically invalidate that client's cache
+      if (clientId) {
+        const clientPattern = `tasks:discover:*"clientId":"${clientId}"*`;
+        const clientKeys = await redis.keys(clientPattern);
+        if (clientKeys.length > 0) {
+          await redis.del(...clientKeys);
+          console.log(`🗑️ Invalidated ${clientKeys.length} cache entries for client ${clientId}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error invalidating task caches:', error);
+      // Don't throw - cache invalidation failure shouldn't break the operation
+    }
+  }
+
   async createTask(userId: string, data: CreateTaskRequest) {
     console.log('🔵 START createTask:', { userId, ...data });
 
@@ -88,6 +122,9 @@ export class TaskService {
       });
 
       console.log('✅ Task created:', createdTask.id);
+
+      // Invalidate cache after creating task
+      await this.invalidateTaskCaches(userId);
 
       return {
         id: createdTask.id,
@@ -174,6 +211,9 @@ export class TaskService {
 
       console.log('✅ Task updated:', taskId);
 
+      // Invalidate cache after updating task
+      await this.invalidateTaskCaches(userId);
+
       return {
         id: updatedTask.id,
         title: updatedTask.title,
@@ -195,7 +235,7 @@ export class TaskService {
    * @param status - The new status to set
    * Simply change status
    */
-  async updateTaskStatus(taskId: string, status: 'draft' | 'open' | 'active' | 'completed' | 'cancelled' | 'refund' | 'paid') {
+  async updateTaskStatus(taskId: string, status: TaskStatus) {
     console.log('🔵 START updateTaskStatus:', { taskId, status });
 
     try {
@@ -297,6 +337,9 @@ export class TaskService {
 
       console.log('✅ Task published:', data.taskId);
 
+      // Invalidate cache after publishing task
+      await this.invalidateTaskCaches(userId);
+
       return {
         id: publishedTask.id,
         status: publishedTask.status,
@@ -356,6 +399,9 @@ export class TaskService {
       });
 
       console.log('✅ Task deleted:', taskId);
+
+      // Invalidate cache after deleting task
+      await this.invalidateTaskCaches(userId);
 
       return {
         success: true,
@@ -654,6 +700,16 @@ export class TaskService {
                 email: true,
               },
             },
+            submission: {
+              select: {
+                id: true,
+                status: true,
+                submittedAt: true,
+                payloadUrl: true,
+                payloadHash: true,
+                qaFlags: true,
+              },
+            },
           },
         },
       },
@@ -687,6 +743,14 @@ export class TaskService {
         dueAt: assignment.dueAt?.toISOString() || null,
         createdAt: assignment.createdAt.toISOString(),
         worker: assignment.worker,
+        submission: assignment.submission ? {
+          id: assignment.submission.id,
+          status: assignment.submission.status,
+          submittedAt: assignment.submission.submittedAt.toISOString(),
+          payloadUrl: assignment.submission.payloadUrl,
+          payloadHash: assignment.submission.payloadHash,
+          qaFlags: assignment.submission.qaFlags,
+        } : null,
       })),
     };
   }

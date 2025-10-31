@@ -6,7 +6,7 @@ import { config } from '../config/env';
 import { TaskDiscoveryQuerySchema, TaskDiscoveryResponse } from '../types/task.types';
 import { WalletService } from '../services/wallet.service';
 import { ASSET_CONFIG } from '../services/fystack.service';
-import { error } from 'console';
+
 
 interface CreateTaskBody {
   title: string;

@@ -2,7 +2,7 @@ import { buildApp } from './app';
 import { config } from './config/env';
 import prisma from './config/prisma';
 import redis from './config/redis';
-import { fystackService } from './services/fystack.service';
+
 
 async function start() {
   try {

@@ -131,7 +131,7 @@ export class SolanaService {
       const amountInSmallestUnit = Math.floor(amountInUsdc * 1_000_000);
       console.log(`Preparing to send ${amountInUsdc} USDC (${amountInSmallestUnit} smallest unit) to ${recipientPublicKey}`);
 
-      // Get or create associated token accounts
+      // Get or create FROM token account (settlement wallet's USDC account)
       const fromTokenAccount = await getOrCreateAssociatedTokenAccount(
         this.connection,
         this.settlementWallet,
@@ -139,6 +139,14 @@ export class SolanaService {
         this.settlementWallet.publicKey
       );
 
+      console.log(`✅ From token account: ${fromTokenAccount.address.toString()}`);
+
+      // Critical delay to ensure blockchain state is propagated
+      // This prevents "TokenAccountNotFoundError" when creating recipient's account
+      console.log('⏳ Waiting for blockchain propagation...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Get or create TO token account (recipient's USDC account)
       const toTokenAccount = await getOrCreateAssociatedTokenAccount(
         this.connection,
         this.settlementWallet,
@@ -146,6 +154,11 @@ export class SolanaService {
         recipient
       );
 
+      console.log(`✅ To token account: ${toTokenAccount.address.toString()}`);
+      
+      // Additional delay before transfer to ensure both accounts are fully available
+      console.log('⏳ Waiting before transfer...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
       // Create transfer instruction
       const transaction = new Transaction().add(
         createTransferInstruction(

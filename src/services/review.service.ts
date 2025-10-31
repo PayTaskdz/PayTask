@@ -20,11 +20,79 @@ export class ReviewService {
   ): Promise<ReviewResponse & { payment?: { signature: string; amount: number } }> {
     console.log('🔵 START acceptSubmission:', { userId, ...data });
 
-    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      console.log('🔵 Transaction started');
+    // Step 1: Get submission and validate (outside transaction)
+    const submissionCheck = await prisma.submission.findUnique({
+      where: { id: data.submissionId },
+      include: {
+        assignment: {
+          include: {
+            task: true,
+            worker: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
 
-      // 1. Get submission with task and worker details
-      console.log('🔵 Fetching submission:', data.submissionId);
+    if (!submissionCheck) {
+      throw new Error('SUBMISSION_NOT_FOUND');
+    }
+
+    if (submissionCheck.assignment.task.clientId !== userId) {
+      throw new Error('UNAUTHORIZED');
+    }
+
+    if (submissionCheck.status === 'accepted') {
+      throw new Error('SUBMISSION_ALREADY_ACCEPTED');
+    }
+
+    // Step 2: Get worker wallet (outside transaction)
+    const worker = await prisma.user.findUnique({
+      where: { id: submissionCheck.assignment.worker.id },
+      include: {
+        wallet: {
+          take: 1,
+          where: { isActive: true },
+        },
+      },
+    });
+
+    if (!worker || !worker.wallet || worker.wallet.length === 0) {
+      throw new Error('WORKER_WALLET_NOT_FOUND');
+    }
+
+    const addresses = worker.wallet[0].addresses as any;
+    const workerWalletAddress = Object.values(addresses)[0] as string;
+
+    if (!workerWalletAddress) {
+      throw new Error('WORKER_WALLET_ADDRESS_NOT_FOUND');
+    }
+
+    // Step 3: Execute payment BEFORE database transaction (critical!)
+    const rewardAmount = parseFloat(submissionCheck.assignment.task.reward.toString());
+    console.log(`💰 Transferring ${rewardAmount} USDC to worker ${workerWalletAddress}`);
+
+    let paymentResult;
+    try {
+      paymentResult = await solanaService.transferToWallet(
+        workerWalletAddress,
+        rewardAmount
+      );
+      console.log('✅ Payment transferred:', paymentResult.signature);
+    } catch (error: any) {
+      console.error('❌ Payment transfer failed:', error);
+      throw new Error(`PAYMENT_TRANSFER_FAILED: ${error.message}`);
+    }
+
+    // Step 4: Update database in fast transaction (no external calls)
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      console.log('🔵 Database transaction started');
+
+      // Get fresh submission data
       const submission = await tx.submission.findUnique({
         where: { id: data.submissionId },
         include: {
@@ -43,24 +111,10 @@ export class ReviewService {
       });
 
       if (!submission) {
-        console.log('❌ Submission NOT_FOUND');
         throw new Error('SUBMISSION_NOT_FOUND');
       }
 
-      // 2. Verify reviewer is the task owner (client)
-      console.log('🔵 Verifying reviewer is task owner');
-      if (submission.assignment.task.clientId !== userId) {
-        console.log('❌ UNAUTHORIZED - Reviewer is not task owner');
-        throw new Error('UNAUTHORIZED');
-      }
-
-      // 3. Check if submission is already reviewed
-      if (submission.status === 'accepted') {
-        throw new Error('SUBMISSION_ALREADY_ACCEPTED');
-      }
-
-      // 4. Create review with approve decision
-      console.log('🔵 Creating review with approve decision');
+      // Create review
       const review = await tx.review.create({
         data: {
           submissionId: data.submissionId,
@@ -70,23 +124,19 @@ export class ReviewService {
         },
       });
 
-      console.log('🔵 Review created:', review.id);
-
-      // 5. Update submission status to accepted
-      console.log('🔵 Updating submission status to accepted');
+      // Update submission status
       await tx.submission.update({
         where: { id: data.submissionId },
         data: { status: 'accepted' },
       });
 
-      // 6. Update assignment status to completed
-      console.log('🔵 Updating assignment status to completed');
+      // Update assignment status
       await tx.assignment.update({
         where: { id: submission.assignmentId },
         data: { status: 'completed' },
       });
 
-      // 7. Check if ALL assignments for this task are completed
+      // Check if all assignments completed
       const taskId = submission.assignment.task.id;
       const taskQty = submission.assignment.task.qty;
       
@@ -99,56 +149,16 @@ export class ReviewService {
 
       console.log(`🔵 Task ${taskId}: ${completedAssignmentsCount}/${taskQty} assignments completed`);
 
-      // Only update task to 'completed' if ALL assignments are done
+      // Update task status if all done
       if (completedAssignmentsCount >= taskQty) {
-        console.log('✅ All assignments completed! Updating task status to completed');
-        await taskService.updateTaskStatus(taskId, 'completed');
-      } else {
-        console.log(`⏳ Still waiting for ${taskQty - completedAssignmentsCount} more assignments`);
+        console.log('✅ All assignments completed!');
+        await tx.task.update({
+          where: { id: taskId },
+          data: { status: 'completed' },
+        });
       }
 
-      // 8. Get worker wallet information
-      const worker = await tx.user.findUnique({
-        where: { id: submission.assignment.worker.id },
-        include: {
-          wallet: {
-            take: 1,
-            where: { isActive: true },
-          },
-        },
-      });
-
-      if (!worker || !worker.wallet || worker.wallet.length === 0) {
-        throw new Error('WORKER_WALLET_NOT_FOUND');
-      }
-
-      // Extract wallet address from addresses JSON
-      const addresses = worker.wallet[0].addresses as any;
-      const workerWalletAddress = Object.values(addresses)[0] as string;
-
-      if (!workerWalletAddress) {
-        throw new Error('WORKER_WALLET_ADDRESS_NOT_FOUND');
-      }
-
-      // 9. Calculate payment amount (reward only, fee stays in settlement wallet)
-      const rewardAmount = parseFloat(submission.assignment.task.reward.toString());
-      console.log(`💰 Transferring ${rewardAmount} USDC to worker ${workerWalletAddress}`);
-
-      // 10. Transfer USDC from settlement wallet to worker wallet
-      let paymentResult;
-      try {
-        paymentResult = await solanaService.transferToWallet(
-          workerWalletAddress,
-          rewardAmount
-        );
-        console.log('✅ Payment transferred:', paymentResult.signature);
-      } catch (error: any) {
-        console.error('❌ Payment transfer failed:', error);
-        throw new Error(`PAYMENT_TRANSFER_FAILED: ${error.message}`);
-      }
-
-      // 11. Create notification for worker
-      console.log('🔵 Creating notification for worker');
+      // Create notification for worker
       await tx.notification.create({
         data: {
           toUserId: submission.assignment.worker.id,
@@ -168,10 +178,8 @@ export class ReviewService {
           },
         },
       });
-      console.log('✅ Notification created for worker');
 
-      // 12. Build response
-      const result = {
+      return {
         id: review.id,
         submissionId: review.submissionId,
         reviewerId: review.reviewerId,
@@ -194,10 +202,10 @@ export class ReviewService {
         },
         payment: paymentResult,
       };
-
-      console.log('✅ SUCCESS - Submission accepted and payment transferred:', result.id);
-      return result;
     });
+
+    console.log('✅ SUCCESS - Submission accepted and payment transferred');
+    return result;
   }
 
   /**

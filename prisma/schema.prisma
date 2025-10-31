@@ -22,6 +22,7 @@ enum UserRole {
 
 enum AssignmentStatus {
   in_progress
+  submitted
   late
   completed
   expired

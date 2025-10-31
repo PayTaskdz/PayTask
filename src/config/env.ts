@@ -44,7 +44,8 @@ export const config = {
   // CORS
   corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:3001'],
 
-  // Cache
-  cacheTtl: parseInt(process.env.CACHE_TTL || '300', 10),
+  // Cache - reduced from 300s to 30s for faster updates
+  // Set to 0 to disable cache, or use environment variable CACHE_TTL
+  cacheTtl: parseInt(process.env.CACHE_TTL || '30', 10),
 };
 
