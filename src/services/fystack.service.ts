@@ -88,6 +88,49 @@ export class FystackService {
           'Content-Type': 'application/json',
         },
       });
+
+      // Add request interceptor for logging
+      this.axiosInstance.interceptors.request.use(
+        (config) => {
+          console.log('Fystack Request:', {
+            method: config.method?.toUpperCase(),
+            url: `${config.baseURL}${config.url}`,
+            params: config.params,
+            data: config.data,
+            headers: {
+              'Content-Type': config.headers['Content-Type'],
+              'x-csrf-token': config.headers['x-csrf-token'] ? 'SET' : 'NOT_SET',
+              'Cookie': config.headers['Cookie'] ? 'SET (hidden)' : 'NOT_SET',
+            },
+          });
+          return config;
+        },
+        (error) => {
+          console.error('Fystack Request Error:', error);
+          return Promise.reject(error);
+        }
+      );
+
+      // Add response interceptor for logging
+      this.axiosInstance.interceptors.response.use(
+        (response) => {
+          console.log('Fystack Response:', {
+            status: response.status,
+            url: response.config.url,
+            data: response.data,
+          });
+          return response;
+        },
+        (error) => {
+          console.error('Fystack Response Error:', {
+            status: error.response?.status,
+            url: error.config?.url,
+            message: error.message,
+            data: error.response?.data,
+          });
+          return Promise.reject(error);
+        }
+      );
     }
   }
 
@@ -166,6 +209,7 @@ export class FystackService {
         return; // Exit on success
       } catch (error: any) {
         this.logger.error(`Authentication attempt ${attempt} failed:`);
+        this.logger.error('Error details:', error.message);
         const axiosError = error as any;
         if (axiosError.response) {
           this.logger.error(`Response Status: ${axiosError.response.status}`);
@@ -176,8 +220,10 @@ export class FystackService {
           this.logger.error('Error during authentication setup:', axiosError.message);
         }
 
-        if (attempt === 5) {
-          this.logger.error('Failed to authenticate Fystack service account after 5 attempts');
+        if (attempt === 1) {
+          this.logger.error('Failed to authenticate Fystack service account after 1 attempt');
+          console.error('❌ Fystack authentication failed on first attempt:', axiosError.message);
+          
           this.sessionCookie = '';
           throw new Error('Failed to authenticate Fystack service account');
         } else {

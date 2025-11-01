@@ -130,12 +130,12 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       fastify.log.info(`User created: ${user.email}, starting wallet creation...`);
-
+      fastify.log.debug({ userId: user.id, username: user.username }, 'New user details');
       // Auto-create wallet (using FyStack service - matching NestJS logic)
       let wallet = null;
       try {
         const fystackResult = await fystackService.createWalletForUser(user.username);
-        
+        fastify.log.info(`FyStack wallet created for user ${user.email}`);
         fastify.log.info({
           walletId: fystackResult.walletId,
           addresses: fystackResult.addresses,
