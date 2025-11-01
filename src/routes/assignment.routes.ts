@@ -120,7 +120,13 @@ export async function assignmentRoutes(fastify: FastifyInstance) {
         });
       } catch (error: any) {
         fastify.log.error('Error accepting task:', error);
-        console.log(error);
+        console.error('❌ Full error details:', {
+          message: error.message,
+          code: error.code,
+          stack: error.stack,
+          name: error.name,
+        });
+        
         // Handle custom errors
         if (error.message === 'CONCURRENCY_CAP') {
           return reply.code(400).send({

@@ -1,510 +1,555 @@
-# 🚀 PayTask Worker API - Quick Start Guide
+# 🚀 PayTask - Bắt Đầu Nhanh
 
-## ✅ Server Status
+Marketplace phi tập trung cho việc giao và nhận công việc, thanh toán tức thì bằng USDC.
+
+---
+
+## � Bạn muốn làm gì?
+
+- 🎯 [**Tôi muốn giao việc** (Client)](#-dành-cho-client---người-giao-việc)
+- 💼 [**Tôi muốn nhận việc** (Worker)](#-dành-cho-worker---người-nhận-việc)
+- 🛠️ [**Tôi là developer** (Setup)](#️-dành-cho-developer---setup-hệ-thống)
+- ❓ [**Gặp vấn đề?** (FAQ)](#-gặp-vấn-đề)
+
+---
+
+## 🎯 Dành Cho Client - Người Giao Việc
+
+> **Mục tiêu:** Đăng task → Đợi worker làm → Kiểm tra → Thanh toán USDC
+
+### ⚡ Quy Trình 5 Bước
 
 ```
-✅ Server running on http://localhost:3000
-📚 API Documentation: http://localhost:3000/api-docs
-💚 Health Check: http://localhost:3000/health
-✅ Database seeded with test data
+1. Đăng nhập    2. Tạo task    3. Đợi worker    4. Kiểm tra    5. Thanh toán
+   ↓               ↓              submit          kết quả       💰 USDC
+  Login         Publish           ↓                ↓            tự động
+                                Notification    Accept/Reject
 ```
 
 ---
 
-## 🎯 Test Credentials
+### Bước 1: Đăng Nhập
 
-All accounts use password: **`password123`**
+**🌐 Qua Website** (Dễ nhất)
 
-### 👔 Clients (Task Creators)
+Mở <http://localhost:3001>, click "Login", nhập:
 
-| Email | Username | Description |
-|-------|----------|-------------|
-| `client1@paytask.com` | Alice | Active client with tasks |
-| `client2@paytask.com` | Bob | Has survey tasks |
-| `client3@paytask.com` | Charlie | New client |
+- Email: `client1@paytask.com`
+- Password: `password123`
 
-### 👷 Workers (Task Performers)
+**📮 Qua Postman**
 
-| Email | Username | Reputation | Active Tasks |
-|-------|----------|------------|--------------|
-| `worker1@paytask.com` | Diana | ⭐⭐⭐⭐ High | 2 |
-| `worker2@paytask.com` | Eve | ⭐⭐⭐ Medium | 1 |
-| `worker3@paytask.com` | Frank | ⭐⭐⭐⭐⭐ Highest | 0 |
-| `worker4@paytask.com` | Grace | New Worker | 0 |
+Request: `Auth → POST Login`
 
----
-
-## 📊 Current Database State
-
-### Tasks Available
-
-| ID | Title | Category | Reward | Status | Client |
-|----|-------|----------|--------|--------|--------|
-| 1 | Image Classification | Image Tagging | $25 | Draft | Alice |
-| 2 | Data Entry - Product Catalog | Data Entry | $30 | Open | Alice |
-| 3 | Survey Response Collection | Surveys | $5 | Open | Bob |
-| 4 | Website Testing | QA Testing | $15 | Active | Bob |
-| 5 | Social Media Research | Research | $20 | Active | Charlie |
-| 6 | Translation Task | Translation | $40 | Completed | Alice |
-| 7 | Video Transcription | Transcription | $35 | Completed | Bob |
-| 8 | Audio Transcription | Transcription | $30 | Completed | Charlie |
-
-### Assignment Statistics
-
-- **Total Assignments**: 5
-- **Pending Review**: 3
-- **Approved**: 2
-- **Rejected**: 0
-
----
-
-## 🧪 Quick API Tests
-
-### 1. Health Check
-
-```bash
-curl http://localhost:3000/health
-```
-
-**Expected Response:**
 ```json
 {
-  "status": "ok",
-  "timestamp": "2025-10-26T06:35:55.000Z",
-  "uptime": 123.45,
-  "checks": {
-    "database": "connected",
-    "redis": "connected"
-  }
+  "email": "client1@paytask.com",
+  "password": "password123"
 }
 ```
 
 ---
 
-### 2. Login as Client
+### Bước 2: Tạo Task
 
-```bash
-curl -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "client1@paytask.com",
-    "password": "password123"
-  }'
-```
+**🌐 Qua Website**
 
-**Expected Response:**
+1. Click nút **"Create Task"**
+2. Điền form:
+   - Title: "Nhập liệu 100 sản phẩm"
+   - Description: Mô tả công việc chi tiết
+   - Category: "Data Entry"
+   - Reward: `50` (USDC)
+   - Quantity: `1`
+   - Deadline: Chọn ngày
+3. Click **"Create"** → Task ở trạng thái `draft`
+4. Click **"Publish Task"** → Chuyển sang `open`
+5. ✅ Worker bắt đầu thấy task của bạn!
+
+**📮 Qua Postman**
+
+Request 1: `Tasks → POST Create Task`
+
 ```json
 {
-  "statusCode": 200,
-  "data": {
-    "accessToken": "tok_xxxxx...",
-    "user": {
-      "id": "uuid-xxx",
-      "email": "client1@paytask.com",
-      "username": "Alice",
-      "role": "client"
-    }
-  }
+  "title": "Nhập liệu 100 sản phẩm",
+  "description": "Nhập dữ liệu từ file Excel",
+  "category": "Data Entry",
+  "reward": 50,
+  "qty": 1,
+  "deadline": "2025-12-31T23:59:59Z"
 }
 ```
 
-**Save the `accessToken` for next requests!**
+Request 2: `Tasks → POST Publish Task`
+
+- Params: `taskId` từ response ở trên
 
 ---
 
-### 3. Discover Available Tasks
+### Bước 3: Đợi Worker Submit
 
-```bash
-curl http://localhost:3000/api/tasks/discover?limit=5
-```
+**Worker sẽ:**
 
-**Expected Response:**
-```json
-{
-  "statusCode": 200,
-  "data": [
-    {
-      "id": "task-uuid-2",
-      "title": "Data Entry - Product Catalog",
-      "category": "Data Entry",
-      "reward": 30.00,
-      "status": "open",
-      "deadline": "2025-10-31T..."
-    },
-    {
-      "id": "task-uuid-3",
-      "title": "Survey Response Collection",
-      "category": "Surveys",
-      "reward": 5.00,
-      "qty": 50,
-      "qtyCompleted": 0
-    }
-  ],
-  "metadata": {
-    "total": 2,
-    "page": 1
-  }
-}
-```
+1. Tìm thấy task của bạn
+2. Click "Accept" → Bắt đầu làm
+3. Upload file kết quả
+4. Click "Submit" → Bạn nhận notification 🔔
+
+**Bạn nhận được:**
+
+- 🔔 Notification: "New submission from Diana"
+- 📧 Email alert (nếu bật)
 
 ---
 
-### 4. Get User Profile (Authenticated)
+### Bước 4: Review & Accept
 
-```bash
-curl http://localhost:3000/api/users/me \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
-```
+**🌐 Qua Website**
 
-**Expected Response:**
+1. Click vào notification
+2. Xem submission details:
+   - 📥 **Download** file để kiểm tra
+   - ✅ **QA Checks**: Auto-validate
+   - 👤 **Worker info**: Rating, reputation
+3. Quyết định:
+   - ✅ **Accept & Pay** → Thanh toán ngay
+   - ❌ **Reject** → Yêu cầu làm lại
+
+**Nếu Accept:**
+
+Hệ thống tự động:
+
+- 💰 Chuyển `50 USDC` từ settlement → worker wallet
+- ✅ Update status: `submitted` → `accepted`
+- 🏆 Update task: `active` → `completed`
+- 🔔 Gửi notification cho worker kèm payment signature
+
+**📮 Qua Postman**
+
+Request: `Reviews → POST Accept Submission`
+
 ```json
 {
-  "statusCode": 200,
-  "data": {
-    "id": "uuid-xxx",
-    "email": "client1@paytask.com",
-    "username": "Alice",
-    "role": "client",
-    "wallet": {
-      "id": "wallet-uuid",
-      "balance": "1000.00",
-      "addresses": {
-        "ethereum": "0x1234...",
-        "polygon": "0x5678..."
-      }
-    }
-  }
+  "submissionId": "<SUBMISSION_ID>",
+  "feedback": "Perfect! Thank you!"
 }
 ```
 
 ---
 
-## 🔄 Complete User Journey (Step-by-Step)
+### Bước 5: Rate Worker (Optional)
 
-### Scenario: Bob (Client) posts a task → Diana (Worker) completes it
+Đánh giá worker để giúp cộng đồng:
 
-#### **Step 1: Bob Logs In**
-
-```bash
-curl -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "client2@paytask.com",
-    "password": "password123"
-  }'
-```
-
-💾 **Save:** `bobToken` = response.data.accessToken
+- ⭐ Rating: 1-5 sao
+- 💬 Comment: Feedback chi tiết
 
 ---
 
-#### **Step 2: Bob Creates a Task**
+## 💼 Dành Cho Worker - Người Nhận Việc
 
-```bash
-curl -X POST http://localhost:3000/api/tasks \
-  -H "Authorization: Bearer BOB_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Test API Integration",
-    "description": "Write API integration tests for our REST endpoints",
-    "category": "Development",
-    "reward": 50.00,
-    "qty": 1,
-    "deadline": "2025-11-01T00:00:00Z"
-  }'
+> **Mục tiêu:** Tìm task → Accept → Làm việc → Submit → Nhận USDC
+
+### ⚡ Quy Trình 5 Bước
+
 ```
-
-💾 **Save:** `taskId` = response.data.id
-
----
-
-#### **Step 3: Bob Locks Escrow**
-
-```bash
-curl -X POST http://localhost:3000/api/wallet/payment/escrow \
-  -H "Authorization: Bearer BOB_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "taskId": "TASK_ID_FROM_STEP_2"
-  }'
-```
-
-💾 **Save:** `txHash` = response.data.txHash
-
----
-
-#### **Step 4: Bob Publishes Task**
-
-```bash
-curl -X POST http://localhost:3000/api/tasks/publish/TASK_ID \
-  -H "Authorization: Bearer BOB_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "txHash": "TX_HASH_FROM_STEP_3"
-  }'
-```
-
-✅ **Task is now OPEN and discoverable!**
-
----
-
-#### **Step 5: Diana Logs In**
-
-```bash
-curl -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "worker1@paytask.com",
-    "password": "password123"
-  }'
-```
-
-💾 **Save:** `dianaToken` = response.data.accessToken  
-💾 **Save:** `dianaUserId` = response.data.user.id
-
----
-
-#### **Step 6: Diana Discovers Task**
-
-```bash
-curl http://localhost:3000/api/tasks/discover?category=Development \
-  -H "Authorization: Bearer DIANA_TOKEN"
-```
-
-🔍 **Diana finds Bob's task in the list**
-
----
-
-#### **Step 7: Diana Accepts Task**
-
-```bash
-curl -X POST http://localhost:3000/api/tasks/assignments/accept \
-  -H "Authorization: Bearer DIANA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "taskId": "TASK_ID",
-    "workerId": "DIANA_USER_ID"
-  }'
-```
-
-💾 **Save:** `assignmentId` = response.data.id
-
-✅ **Assignment created! Diana is now working on the task**
-
----
-
-#### **Step 8: Diana Uploads Work File**
-
-```bash
-curl -X POST http://localhost:3000/api/submissions/upload \
-  -H "Authorization: Bearer DIANA_TOKEN" \
-  -F "file=@test-results.zip"
-```
-
-💾 **Save:** `fileUrl` = response.data.url  
-💾 **Save:** `fileHash` = response.data.hash
-
----
-
-#### **Step 9: Diana Creates Submission**
-
-```bash
-curl -X POST http://localhost:3000/api/submissions/create \
-  -H "Authorization: Bearer DIANA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "assignmentId": "ASSIGNMENT_ID",
-    "payloadUrl": "FILE_URL",
-    "payloadHash": "FILE_HASH",
-    "notes": "Completed all API integration tests with 95% coverage"
-  }'
-```
-
-💾 **Save:** `submissionId` = response.data.id
-
-✅ **Submission created! Waiting for Bob's review**
-
----
-
-#### **Step 10: Bob Reviews Submission**
-
-```bash
-curl -X POST http://localhost:3000/api/reviews/create \
-  -H "Authorization: Bearer BOB_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "submissionId": "SUBMISSION_ID",
-    "decision": "approve",
-    "feedback": "Great work! Tests are comprehensive and well-documented.",
-    "rating": 5
-  }'
-```
-
-✅ **Review created! Assignment approved**
-
----
-
-#### **Step 11: Bob Pays Diana**
-
-```bash
-curl -X POST http://localhost:3000/api/wallet/payment/payout \
-  -H "Authorization: Bearer BOB_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "taskId": "TASK_ID",
-    "recipientUserId": "DIANA_USER_ID"
-  }'
-```
-
-✅ **Payment successful! Diana receives $50**
-
----
-
-#### **Step 12: Both Rate Each Other**
-
-**Bob rates Diana:**
-```bash
-curl -X POST http://localhost:3000/api/ratings/create \
-  -H "Authorization: Bearer BOB_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "toUserId": "DIANA_USER_ID",
-    "taskId": "TASK_ID",
-    "score": 5,
-    "comment": "Professional and delivered high-quality work!"
-  }'
-```
-
-**Diana rates Bob:**
-```bash
-curl -X POST http://localhost:3000/api/ratings/create \
-  -H "Authorization: Bearer DIANA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "toUserId": "BOB_USER_ID",
-    "taskId": "TASK_ID",
-    "score": 5,
-    "comment": "Clear requirements and fast payment!"
-  }'
-```
-
-✅ **Journey Complete! 🎉**
-
----
-
-## 📚 Additional Resources
-
-### Swagger UI (Interactive Docs)
-🌐 http://localhost:3000/api-docs
-
-### Postman Collection
-📁 `PayTask-Worker-API.postman_collection.json`  
-📁 `PayTask-Development.postman_environment.json`
-
-**Import to Postman:**
-1. Open Postman
-2. Import both JSON files
-3. Select "PayTask Development" environment
-4. Start testing!
-
-### Automated Tests
-```bash
-# Unix/Mac
-chmod +x run-api-tests.sh
-./run-api-tests.sh
-
-# Windows
-run-api-tests.bat
+1. Tìm task    2. Accept    3. Upload    4. Submit    5. Nhận tiền
+   ↓              ↓           file          ↓           💰 USDC
+ Discover      Assigned       ↓         Waiting        tự động
+   ↓              ↓           Done       Review       vào wallet
+  Filter       Start work
 ```
 
 ---
 
-## 🐛 Troubleshooting
+### Bước 1: Đăng Nhập
 
-### ❌ "Unauthorized" Error
-**Solution:** Make sure you:
-1. Logged in first
-2. Saved the `accessToken`
-3. Added `Authorization: Bearer YOUR_TOKEN` header
+**🌐 Qua Website**
 
-### ❌ "Task not found"
-**Solution:** 
-1. Check the `taskId` is correct
-2. Task must be in "open" status to be accepted
-3. Use correct client/worker account
+Mở <http://localhost:3001>, click "Login", nhập:
 
-### ❌ "Worker already has 3 active tasks"
-**Solution:** 
-- Workers can only have max 3 active tasks
-- Complete or cancel existing tasks first
-
-### ❌ "Insufficient balance"
-**Solution:**
-- Check wallet balance: `GET /api/users/me`
-- Seeded wallets have $1000 balance by default
+- Email: `worker1@paytask.com`
+- Password: `password123`
 
 ---
 
-## 🎨 Development Tips
+### Bước 2: Tìm Task
 
-### Watch Database Changes
-```bash
-npx prisma studio
+**🌐 Qua Website**
+
+1. Click **"Discover Tasks"**
+2. Dùng filter:
+   - 📂 Category: Data Entry, Surveys...
+   - 💰 Min Reward: 10 USDC
+   - 📅 Deadline: Còn thời gian
+3. Click vào task → Xem details:
+   - 📋 Requirements
+   - 💵 Reward amount
+   - ⏰ Deadline
+   - 👤 Client info
+
+**📮 Qua Postman**
+
+Request: `Tasks → GET Discover Tasks`
+
+Query params:
+
+- `category=Data Entry`
+- `minReward=10`
+- `limit=20`
+
+---
+
+### Bước 3: Accept Task
+
+**🌐 Qua Website**
+
+1. Ở trang task detail
+2. Click **"Accept Task"**
+3. Confirm → Chuyển đến task flow page
+4. ✅ Bắt đầu làm việc!
+
+**📮 Qua Postman**
+
+Request: `Assignments → POST Accept Assignment`
+
+```json
+{
+  "taskId": "<TASK_ID>",
+  "workerId": "<YOUR_USER_ID>"
+}
 ```
-Opens GUI at http://localhost:5555
 
-### View Logs
+Lưu `assignmentId` từ response!
+
+---
+
+### Bước 4: Làm Việc & Upload
+
+**🌐 Qua Website (Task Flow Page)**
+
+1. 📖 Đọc kỹ instructions
+2. 💻 Hoàn thành công việc
+3. 📁 Chuẩn bị file (PDF, ZIP, DOC...)
+4. Click **"Upload File"**
+5. Chọn file → Đợi upload
+6. ✅ File URL hiển thị
+
+**📮 Qua Postman**
+
+Request: `Submissions → POST Upload File`
+
+- Body: **form-data**
+- Key: `file`
+- Value: Chọn file từ máy
+
+---
+
+### Bước 5: Submit & Nhận Tiền
+
+**🌐 Submit Work**
+
+1. Kiểm tra lại file URL
+2. Click **"Submit Work"**
+3. Confirm
+4. ✅ Đợi client review
+
+**💰 Nhận Tiền (Tự động)**
+
+Khi client accept:
+
+- 🔔 Notification: "Your submission accepted!"
+- 💰 `50 USDC` → Wallet của bạn
+- 📝 Payment signature (có thể verify trên Solana Explorer)
+
+**Kiểm tra số dư:**
+
+- Web: Click avatar → "My Wallet"
+- Postman: `Users → GET My Profile` → xem `wallet.balance`
+
+---
+
+## 🛠️ Dành Cho Developer - Setup Hệ Thống
+
+### Yêu Cầu
+
+- Node.js 18+
+- PostgreSQL 14+
+- Redis 7+
+- npm/yarn
+
+### Cài Đặt
+
 ```bash
-# Server logs show all requests
-# Check terminal where `npm run dev` is running
+# 1. Clone repo
+git clone https://github.com/PayTaskdz/PayTask.git
+cd PayTask
+
+# 2. Install backend
+npm install
+
+# 3. Setup database
+cp .env.example .env
+# Sửa .env với thông tin DB của bạn
+
+npx prisma migrate dev
+npx prisma db seed
+
+# 4. Start backend
+npm run dev
+# ✅ Backend: http://localhost:3000
+
+# 5. Install frontend (Terminal mới)
+cd frontend/frontendpaytask
+npm install
+
+# 6. Start frontend
+npm run dev
+# ✅ Frontend: http://localhost:3001
 ```
 
-### Reset Database
+### Kiểm Tra
+
+Mở browser:
+
+- Frontend: <http://localhost:3001>
+- API Docs: <http://localhost:3000/api-docs>
+- Health: <http://localhost:3000/health>
+
+### Import Postman
+
+1. Mở Postman
+2. Import 2 files:
+   - `PayTask-API-Fixed.postman_collection.json`
+   - `PayTask-Development.postman_environment.json`
+3. Chọn environment: "PayTask Development"
+4. ✅ Sẵn sàng test!
+
+### Tài Khoản Test
+
+**Clients:**
+
+- `client1@paytask.com` / `password123` (Alice)
+- `client2@paytask.com` / `password123` (Bob)
+
+**Workers:**
+
+- `worker1@paytask.com` / `password123` (Diana - ⭐⭐⭐⭐)
+- `worker2@paytask.com` / `password123` (Eve - ⭐⭐⭐)
+
+---
+
+## ❓ Gặp Vấn Đề?
+
+### 🔴 "No token provided"
+
+**Lý do:** Chưa đăng nhập
+
+**Fix:**
+
+1. Login lại
+2. Check localStorage có `accessToken`
+3. Postman: Check `{{authToken}}` variable
+
+---
+
+### 🔴 "Unauthorized"
+
+**Lý do:** Không có quyền
+
+**Fix:**
+
+- Client chỉ accept/reject task của mình
+- Worker chỉ submit assignment của mình
+- Check đúng role
+
+---
+
+### 🔴 "Task not found"
+
+**Lý do:** TaskId sai hoặc đã xóa
+
+**Fix:**
+
+1. Check lại taskId
+2. `GET /api/tasks/:id` để verify
+3. Dùng Discover để tìm task mới
+
+---
+
+### 🔴 "Assignment not found"
+
+**Lý do:** Chưa accept task
+
+**Fix:**
+
+1. Accept task trước (`POST /api/assignments/accept`)
+2. Lưu `assignmentId` từ response
+3. Dùng assignmentId để submit
+
+---
+
+### 🔴 "Submission already exists"
+
+**Lý do:** Đã submit rồi
+
+**Fix:**
+
+- Mỗi assignment chỉ submit 1 lần
+- Đợi client reject → Submit lại
+
+---
+
+### 🔴 "Transaction timeout"
+
+**Lý do:** Solana blockchain chậm
+
+**Fix:**
+
+- Đợi 10-15 giây
+- Payment execute riêng, không timeout DB
+- Check notification xem payment status
+
+---
+
+### 🔴 URL có double /api
+
+**Lý do:** Frontend config sai
+
+**Fix:**
+
+File `.env.local`:
+
+```bash
+# ✅ ĐÚNG
+NEXT_PUBLIC_API_URL=http://localhost:3000
+
+# ❌ SAI
+NEXT_PUBLIC_API_URL=http://localhost:3000/api
+```
+
+---
+
+### 🔧 Reset Database
+
 ```bash
 npx prisma migrate reset
 npx ts-node prisma/seed.ts
 ```
 
-### Check Redis Cache
+---
+
+### 🔧 View Database
+
 ```bash
-redis-cli
-> KEYS *
-> GET session:tok_xxxxx
+npx prisma studio
+# Mở http://localhost:5555
 ```
 
 ---
 
-## 📝 API Endpoints Summary
+### 🔧 Clear Redis Cache
 
-| Category | Endpoint | Method | Auth |
-|----------|----------|--------|------|
-| **Auth** | `/api/auth/register` | POST | No |
-| | `/api/auth/login` | POST | No |
-| | `/api/auth/logout` | POST | Yes |
-| **Tasks** | `/api/tasks` | POST | Yes |
-| | `/api/tasks/discover` | GET | No |
-| | `/api/tasks/publish/:id` | POST | Yes |
-| | `/api/tasks/:id` | GET/PUT/DELETE | Yes |
-| **Assignments** | `/api/tasks/assignments/accept` | POST | Yes |
-| | `/api/tasks/assignments/user/:userId` | GET | Yes |
-| **Submissions** | `/api/submissions/upload` | POST | Yes |
-| | `/api/submissions/create` | POST | Yes |
-| **Reviews** | `/api/reviews/create` | POST | Yes |
-| | `/api/reviews/submission/:id` | GET | Yes |
-| **Wallet** | `/api/wallet/payment/escrow` | POST | Yes |
-| | `/api/wallet/payment/payout` | POST | Yes |
-| | `/api/wallet/payment/withdraw` | POST | Yes |
-| | `/api/wallet/payment/refund` | POST | Yes |
-| **Users** | `/api/users/me` | GET | Yes |
-| | `/api/users/:id` | GET/PUT | Yes |
-| **Ratings** | `/api/ratings/create` | POST | Yes |
-| | `/api/ratings/user/:userId` | GET | No |
-| **Stats** | `/api/stats/worker/:userId` | GET | Yes |
-| | `/api/stats/client/:userId` | GET | Yes |
-| **Health** | `/health` | GET | No |
+```bash
+redis-cli
+> FLUSHALL
+```
 
 ---
 
-**Happy Testing! 🚀**
+## 📊 Hiểu Flow Hoàn Chỉnh
 
-Last Updated: October 26, 2025
+```ascii
+┌─────────────────────────────────────────────────────────────┐
+│                    PAYTASK WORKFLOW                         │
+└─────────────────────────────────────────────────────────────┘
+
+CLIENT                                              WORKER
+  │                                                    │
+  │ [1] Create Task (draft)                           │
+  │                                                    │
+  │ [2] Publish Task (open) ────────────────────────► │
+  │                                                    │
+  │                              [3] Discover Tasks   │
+  │                                   ↓               │
+  │                              [4] Accept Task      │
+  │                              (in_progress)        │
+  │                                   ↓               │
+  │                              [5] Upload File      │
+  │                                   ↓               │
+  │ ◄──────────────────────────  [6] Submit Work     │
+  │     Notification 🔔          (submitted)          │
+  │                                                    │
+  │ [7] Review Submission                             │
+  │     - Download file                               │
+  │     - Check quality                               │
+  │                                                    │
+  │ [8] Accept & Pay ────────────────────────────────► │
+  │     💰 Transfer USDC                  Notification 🔔
+  │     (accepted)                        💰 USDC received
+  │                                                    │
+  │ [9] Rate Worker                                   │
+  │ ◄──────────────────────────────────────────────── │
+  │                                  [10] Rate Client │
+  │                                                    │
+  ✅ Complete                                        ✅ Complete
+```
+
+**Status Flow:**
+
+```
+Task:       draft → open → active → completed
+Assignment: in_progress → submitted → completed  
+Submission: submitted → accepted/rejected
+```
+
+---
+
+## 🎓 Tài Liệu Thêm
+
+### 📖 Docs
+
+- [COMPLETE_GUIDE.md](./COMPLETE_GUIDE.md) - Tài liệu đầy đủ
+- [TASK_FLOW_INTEGRATION.md](./TASK_FLOW_INTEGRATION.md) - Task flow chi tiết
+- [NOTIFICATION_API.md](./NOTIFICATION_API.md) - Notification system
+
+### 🌐 Tools
+
+- Swagger UI: <http://localhost:3000/api-docs>
+- Postman Collection: Interactive testing
+- Prisma Studio: <http://localhost:5555>
+
+### 💡 Pro Tips
+
+1. **Luôn check status** - Task/Assignment/Submission đều có status riêng
+2. **Dùng Postman** - Pre-request scripts tự set token
+3. **Theo dõi notifications** - Mọi action quan trọng đều có thông báo
+4. **Check wallet balance** - `GET /api/users/me`
+5. **Payment signature** - Verify trên Solana Explorer
+
+---
+
+## 🔐 Security
+
+- ✅ JWT authentication
+- ✅ CORS configured
+- ✅ File validation
+- ✅ Rate limiting
+- ✅ Wallet encryption
+- ✅ Transaction timeout protection
+
+---
+
+## 🚀 Sẵn Sàng Bắt Đầu?
+
+1. **Client?** → [Quay lại hướng dẫn Client](#-dành-cho-client---người-giao-việc)
+2. **Worker?** → [Quay lại hướng dẫn Worker](#-dành-cho-worker---người-nhận-việc)
+3. **Developer?** → [Quay lại Setup](#️-dành-cho-developer---setup-hệ-thống)
+4. **Cần help?** → support@paytask.com
+
+---
+
+**Happy PayTasking! 🎉**
+
+*Last Updated: October 31, 2025*

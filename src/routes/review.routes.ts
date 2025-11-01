@@ -42,7 +42,7 @@ export async function reviewRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const userId = request.user.userId;
-
+        
         const body = request.body as AcceptSubmissionBody;
         const result = await reviewService.acceptSubmission(userId, {
           submissionId: body.submissionId,

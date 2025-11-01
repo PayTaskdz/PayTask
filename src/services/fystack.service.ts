@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
-import { error } from 'console';
+
 
 // Asset configuration
 export const ASSET_CONFIG = {
