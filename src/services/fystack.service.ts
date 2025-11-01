@@ -68,6 +68,7 @@ export interface FystackWithdrawal {
 export class FystackService {
   private axiosInstance: AxiosInstance | null;
   private sessionCookie: string = '';
+  private csrfToken: string = '';
   private logger: any;
 
   constructor(logger?: any) {
@@ -105,6 +106,21 @@ export class FystackService {
     await this.ensureAuthenticated();
   }
 
+  private async getCsrfToken(): Promise<{ csrfToken: string; csrfCookie: string }> {
+    if (!this.axiosInstance) {
+      throw new Error('Axios instance is not initialized');
+    }
+
+    const response = await this.axiosInstance.get('/authentication/csrf-token');
+    const csrfToken = response.data.data.csrf_token;
+    const csrfCookie = this.extractSessionCookie(response);
+
+    if (!csrfToken || !csrfCookie) {
+      throw new Error('Failed to retrieve CSRF token or cookie');
+    }
+    return { csrfToken, csrfCookie };
+  }
+
   private async ensureAuthenticated(): Promise<void> {
     if (this.sessionCookie) {
 
@@ -122,27 +138,50 @@ export class FystackService {
           throw new Error('Axios instance is not initialized');
         }
 
-        // Step 1: Sign in
-        const signInResponse = await this.axiosInstance.post('/authentication/sign-in', { email, password });
+        // Step 1: Get CSRF token first
+        const { csrfToken, csrfCookie } = await this.getCsrfToken();
+        this.csrfToken = csrfToken;
 
-        let cookie = this.extractSessionCookie(signInResponse);
+        // Step 2: Sign in with CSRF token to get an initial access_token cookie
+        const signInResponse = await this.axiosInstance.post('/authentication/sign-in', { email, password }, {
+          headers: {
+            'x-csrf-token': this.csrfToken,
+            'Cookie': csrfCookie,
+          },
+        });
+        const signInCookie = this.extractSessionCookie(signInResponse);
 
-        // Step 2: Start session
+        // Step 3: Start session, sending both CSRF and initial access_token cookies
+        const combinedCookieForSessionStart = [csrfCookie, signInCookie].filter(Boolean).join('; ');
         const sessionResponse = await this.axiosInstance.post(
           '/authentication/start-session',
           { workspace_id: workspaceId },
-          { headers: { Cookie: cookie } }
+          { headers: { Cookie: combinedCookieForSessionStart } }
         );
+        const finalSessionCookie = this.extractSessionCookie(sessionResponse);
 
-        this.sessionCookie = this.extractSessionCookie(sessionResponse) || cookie;
+        // The final cookie for subsequent requests is the combination of the CSRF cookie and the final session cookie
+        this.sessionCookie = [csrfCookie, finalSessionCookie].filter(Boolean).join('; ');
 
         return; // Exit on success
       } catch (error: any) {
+        this.logger.error(`Authentication attempt ${attempt} failed:`);
+        const axiosError = error as any;
+        if (axiosError.response) {
+          this.logger.error(`Response Status: ${axiosError.response.status}`);
+          this.logger.error('Response Data:', axiosError.response.data);
+        } else if (axiosError.request) {
+          this.logger.error('No response received from Fystack API.');
+        } else {
+          this.logger.error('Error during authentication setup:', axiosError.message);
+        }
+
         if (attempt === 5) {
           this.logger.error('Failed to authenticate Fystack service account after 5 attempts');
           this.sessionCookie = '';
           throw new Error('Failed to authenticate Fystack service account');
         } else {
+          this.logger.info('Waiting 5 seconds before retry...');
           await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds before retrying
         }
       }
@@ -166,7 +205,13 @@ export class FystackService {
         workspace_id: workspaceId,
       };
 
-      const walletResponse = await this.axiosInstance.post('/wallets', walletPayload, { headers: { Cookie: this.sessionCookie } });
+
+      const walletResponse = await this.axiosInstance.post('/wallets', walletPayload, {
+        headers: {
+          Cookie: this.sessionCookie,
+          'x-csrf-token': this.csrfToken,
+        },
+      });
       const wallet = walletResponse.data.data;
       const newWalletId = wallet.wallet_id;
 
@@ -205,8 +250,13 @@ export class FystackService {
         sessionCookie: this.sessionCookie,
       };
     } catch (error) {
-      this.logger.error(`Failed to create Fystack wallet for ${username}:`, error);
-      throw new Error('Failed to create wallet');
+      const axiosError = error as any;
+      if (axiosError.response) {
+        this.logger.error(`Failed to create Fystack wallet for ${username}. Status: ${axiosError.response.status}`, axiosError.response.data);
+      } else {
+        this.logger.error(`Failed to create Fystack wallet for ${username}:`, error);
+      }
+      throw new Error(`Failed to create wallet: ${axiosError.message}`);
     }
   }
 
@@ -293,7 +343,12 @@ export class FystackService {
       const response = await this.axiosInstance.post(
         `/wallets/${walletId}/withdrawal`,
         payload,
-        { headers: { Cookie: this.sessionCookie } },
+        {
+          headers: {
+            Cookie: this.sessionCookie,
+            'x-csrf-token': this.csrfToken,
+          },
+        },
       );
 
       const withdrawalData = response.data.data;
@@ -352,12 +407,12 @@ export class FystackService {
         if (!this.axiosInstance) {
           throw new Error('Axios instance is not initialized');
         }
-        
+
           const walletResponse = await this.axiosInstance.get(
             `/wallets/${walletId}`,
             { headers: { Cookie: this.sessionCookie } },
           );
-        
+
         const walletData = walletResponse.data.data || walletResponse.data;
         const walletName = walletData.name || 'Wallet';
 
@@ -369,7 +424,12 @@ export class FystackService {
         await this.axiosInstance.patch(
           `/wallets/${walletId}/settings`,
           settingsWithName,
-          { headers: { Cookie: this.sessionCookie } },
+          {
+          headers: {
+            Cookie: this.sessionCookie,
+            'x-csrf-token': this.csrfToken,
+          },
+        },
         );
 
         return; // Success, exit the retry loop
